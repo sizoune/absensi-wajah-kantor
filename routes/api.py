@@ -675,6 +675,8 @@ def enrollment_json(r):
 @require_token("write")
 def face_enrollment_start(employee_id):
     """Meminta layanan kamera kios mendaftarkan wajah karyawan ini."""
+    if current_app.config.get('ATTENDANCE_MODE', 'standalone') == 'eoffice':
+        return error(409, 'pendaftaran_dikelola_eoffice', 'Pendaftaran wajah dikelola oleh e-office.')
     e = db.session.get(Employee, employee_id)
     if e is None:
         return error(404, "tidak_ditemukan", f"Karyawan {employee_id} tidak ditemukan.")

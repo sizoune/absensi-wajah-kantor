@@ -6,14 +6,75 @@ Perintah menjalankan layanan kamera kios:
 
 Jalankan di terminal terpisah dari `flask --app app run`. Hentikan dengan Ctrl+C.
 """
+from __future__ import annotations
+
 import logging
 import signal
+from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict
 
 import click
 
 from extensions import db
 from models import Employee
 from services.cli_errors import friendly_db_errors
+
+
+if TYPE_CHECKING:
+    from flask import Flask
+    from integration.store import IntegrationStore
+    from integration.sync import SyncWorker
+    from integration.clock import TrustedClock
+    from recognition.detector import QualitySettings, YuNetDetector
+    from recognition.eoffice_identify import EofficeModels
+    from recognition.liveness import LivenessSettings, PassiveLiveness
+
+
+class EofficeDependencies(TypedDict):
+    integration_store: IntegrationStore
+    sync_worker: SyncWorker
+    trusted_clock: TrustedClock
+    eoffice_models: EofficeModels
+
+
+def load_eoffice(app: Flask) -> tuple[YuNetDetector, QualitySettings, PassiveLiveness, LivenessSettings, EofficeDependencies]:
+    """Load only e-office assets; two connections separate inference from sync I/O."""
+    from integration.client import EofficeClient
+    from integration.clock import TrustedClock
+    from integration.store import IntegrationStore
+    from integration.sync import SyncWorker
+    from recognition import model_files as mf
+    from recognition.detector import QualitySettings, YuNetDetector
+    from recognition.eoffice_models import AuraFaceEmbedder, PeriocularEmbedder
+    from recognition.eoffice_identify import EofficeModels
+    from recognition.cli import _load_liveness
+    from services.biometric_service import load_keyring
+
+    detector = YuNetDetector(mf.verify(app.config['MODEL_DIR'], mf.YUNET),
+                             detect_width=app.config['FACE_DETECT_WIDTH'])
+    embedders = {'auraface_512': AuraFaceEmbedder(app.config['EOFFICE_AURAFACE_PATH']),
+                 'mobilefacenet_v1_periocular': PeriocularEmbedder(app.config['EOFFICE_PERIOCULAR_PATH'])}
+    liveness, settings = _load_liveness(app)
+    if settings.mode != 'passive' or liveness is None:
+        raise ValueError('E-office requires passive liveness')
+    active, keys = load_keyring(app.config['EOFFICE_KEY_FILE'])
+    client = EofficeClient(app.config['EOFFICE_BASE_URL'], app.config['EOFFICE_DEVICE_TOKEN'])
+    path = Path(app.instance_path) / 'eoffice.sqlite3'
+    frame_store = IntegrationStore(path, keys[active])
+    worker_store = None
+    try:
+        worker_store = IntegrationStore(path, keys[active])
+        clock = TrustedClock(store=worker_store)
+        sync = SyncWorker(worker_store, client, clock)
+    except BaseException:
+        if worker_store is not None:
+            worker_store.close()
+        frame_store.close()
+        raise
+    return detector, QualitySettings(), liveness, settings, {
+        'integration_store': frame_store, 'sync_worker': sync, 'trusted_clock': clock,
+        'eoffice_models': EofficeModels(embedders, liveness),
+    }
 
 
 def register_kiosk_commands(app):
@@ -47,22 +108,28 @@ def register_kiosk_commands(app):
             raise click.ClickException(str(exc))
 
         cam = None
+        integration = {}
         try:
-            detector, embedder, quality = _load_models(app)
-            liveness, live_settings = _load_liveness(app)
             people = {}
+            eoffice = app.config.get('ATTENDANCE_MODE', 'standalone') == 'eoffice'
+            if eoffice:
+                detector, quality, liveness, live_settings, integration = load_eoffice(app)
+                embedder, matcher_factory = None, None
+            else:
+                detector, embedder, quality = _load_models(app)
+                liveness, live_settings = _load_liveness(app)
 
-            def matcher_factory():
-                templates, failed = biometric.load_active_templates(embedder.model_name)
-                if failed:
-                    logging.warning("%s templat gagal diverifikasi dan dilewati.", failed)
-                people.clear()
-                people.update({
-                    e.id: (e.employee_code, e.full_name)
-                    for e in db.session.execute(db.select(Employee)).scalars()
-                })
-                return Matcher(templates, threshold=app.config["FACE_MATCH_THRESHOLD"],
-                               margin=app.config["FACE_MATCH_MARGIN"])
+                def matcher_factory():
+                    templates, failed = biometric.load_active_templates(embedder.model_name)
+                    if failed:
+                        logging.warning("%s templat gagal diverifikasi dan dilewati.", failed)
+                    people.clear()
+                    people.update({
+                        e.id: (e.employee_code, e.full_name)
+                        for e in db.session.execute(db.select(Employee)).scalars()
+                    })
+                    return Matcher(templates, threshold=app.config["FACE_MATCH_THRESHOLD"],
+                                   margin=app.config["FACE_MATCH_MARGIN"])
 
             cam = webcam.Webcam(webcam.CameraSettings.from_config(app.config))
             try:
@@ -80,14 +147,23 @@ def register_kiosk_commands(app):
                 gate_state = {"prompts": {}, "pending": set(worker.gate.pending),
                               "rejected": worker.gate.rejected_tracks,
                               "settings": worker.gate.s}
-                cv2.imshow(window, identify.annotate(frame, tracks, people, header, gate_state))
+                if eoffice:
+                    from kiosk.state import public_view
+                    view = frame.copy()
+                    message = public_view({'mode': 'eoffice', 'heartbeat': worker.wall_clock(),
+                                           'message': worker.message}, now=worker.wall_clock())['message']
+                    text = message['text'] if message else 'Silakan berjalan di depan kamera'
+                    cv2.putText(view, text, (12, 30), cv2.FONT_HERSHEY_SIMPLEX, .7, (255, 255, 255), 2)
+                else:
+                    view = identify.annotate(frame, tracks, people, header, gate_state)
+                cv2.imshow(window, view)
                 cv2.waitKey(1)
                 return True
 
             worker = KioskWorker(
                 app, cam, detector, embedder, quality, matcher_factory,
                 TrackerSettings.from_config(app.config),
-                att.AttendanceSettings.from_config(app.config),
+                None if eoffice else att.AttendanceSettings.from_config(app.config),
                 KioskState(app.config["KIOSK_STATE_FILE"]),
                 template_reload_seconds=app.config["TEMPLATE_RELOAD_SECONDS"],
                 on_frame=show if preview else None,
@@ -95,6 +171,7 @@ def register_kiosk_commands(app):
                 liveness_settings=live_settings,
                 match_threshold=app.config["FACE_MATCH_THRESHOLD"],
                 match_margin=app.config["FACE_MATCH_MARGIN"],
+                **integration,
             )
 
             stop = {"flag": False}
@@ -111,6 +188,12 @@ def register_kiosk_commands(app):
                 click.echo(f"Anti-foto aktif: {live_settings.mode}")
             worker.run(should_stop=lambda: stop["flag"])
         finally:
+            if integration:
+                sync = integration['sync_worker']
+                sync.stop(timeout=0.0)
+                if not sync.started:
+                    sync.store.close()
+                integration['integration_store'].close()
             if cam is not None:
                 cam.release()
             if preview:

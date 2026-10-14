@@ -29,6 +29,18 @@ CAMERA_ERROR = "error"
 CAMERA_STARTING = "starting"
 
 
+EOFFICE_MESSAGES = {
+    'pending': ('info', 'Menunggu sinkronisasi'),
+    'check_in': ('success', 'Berhasil masuk'),
+    'check_out': ('success', 'Berhasil pulang'),
+    'duplicate': ('info', 'Sudah absen'),
+    'outside_schedule': ('warning', 'Di luar jadwal'),
+    'uncertain': ('warning', 'Identitas belum dipastikan'),
+    'storage': ('error', 'Penyimpanan bermasalah'),
+    'operator': ('error', 'Hubungi operator'),
+}
+
+
 class KioskState:
     def __init__(self, path, sleep=time.sleep, replace=os.replace):
         self.path = Path(path)
@@ -81,6 +93,15 @@ def public_view(state, now=None, stale_seconds=STALE_SECONDS, message_seconds=ME
     message = state.get("message")
     if message and now - float(message.get("at", 0)) > message_seconds:
         message = None
+    if state.get('mode') == 'eoffice':
+        public_message = None
+        if message:
+            kind, text = EOFFICE_MESSAGES.get(message.get('status'), EOFFICE_MESSAGES['operator'])
+            first = str(message.get('first_name') or '').split()
+            public_message = {'kind': kind, 'text': (first[0] + ': ' if first else '') + text,
+                              'id': message.get('id')}
+        return {'online': True, 'camera': state.get('camera', CAMERA_STARTING),
+                'message': public_message, 'hint': None}
     return {
         "online": True,
         "camera": state.get("camera", CAMERA_STARTING),
@@ -102,6 +123,7 @@ def admin_view(state, now=None, stale_seconds=STALE_SECONDS):
         "camera": state.get("camera"),
         "detail": state.get("detail") or "",
         "employees": state.get("employees", 0),
-        "recorded_today": state.get("recorded", 0),
+        **({"recorded_this_run": state.get("recorded", 0), "recorded_scope": "Sejak layanan dimulai"}
+           if state.get("mode") == "eoffice" else {"recorded_today": state.get("recorded", 0)}),
         "liveness": state.get("liveness") or "off",
     }

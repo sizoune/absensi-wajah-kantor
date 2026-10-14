@@ -29,6 +29,7 @@ class SyncStatus:
     auth: Literal['ok', 'paused'] = 'ok'
     clock: Literal['ok', 'unavailable'] = 'unavailable'
     retry_after: float = 60.0
+    recorded_count: int = 0  # Unique recorded acknowledgments during this worker run.
     events_sent: int = 0
     gallery_changed: bool = False
     snapshot_id: str | None = None
@@ -125,7 +126,8 @@ class SyncWorker:
                             self._event_failures = 0
                             self._next_events = self._monotonic()
                             status = replace(status, connection='online', events_sent=status.events_sent + 1,
-                                             event_id=entry.event_id, response=result)
+                                             event_id=entry.event_id, response=result,
+                                             recorded_count=status.recorded_count + int(result.get('data', {}).get('outcome') == 'recorded'))
                             self._publish(replace(status, gallery_changed=False))
                             if was_offline:
                                 self._next_snapshot = self._monotonic()
@@ -159,11 +161,19 @@ class SyncWorker:
     def wake(self) -> None:
         self._wake.set()
 
+    @property
+    def started(self) -> bool:
+        return self._thread is not None
+
     def start(self) -> None:
         if self._thread is not None:
             raise RuntimeError('Sync worker already started')
         self._thread = Thread(target=self._run, name='eoffice-sync', daemon=True)
-        self._thread.start()
+        try:
+            self._thread.start()
+        except BaseException:
+            self._thread = None
+            raise
 
     def _run(self) -> None:
         try:

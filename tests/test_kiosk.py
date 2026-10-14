@@ -447,3 +447,16 @@ def test_tes_tidak_memakai_file_status_kios_asli(app, tmp_path):
 
     for key in ("KIOSK_STATE_FILE", "KIOSK_LOCK_FILE", "BACKUP_DIR"):
         assert Path(app.config[key]).is_relative_to(tmp_path), key
+
+
+def test_eoffice_message_is_safe_and_expires():
+    raw = {'mode': 'eoffice', 'heartbeat': 100., 'camera': 'ok', 'hint': 'raw secret',
+           'message': {'status': 'pending', 'first_name': 'Budi Santoso', 'at': 100.,
+                       'id': '85f42b66-6a77-4c56-9efc-4231ff6eab42', 'text': 'raw error',
+                       'score': .9, 'pegawai_id': 101, 'enrollment_id': 12}}
+    view = ks.public_view(raw, now=100.)
+    assert view['message'] == {'kind': 'info', 'text': 'Budi: Menunggu sinkronisasi',
+                               'id': raw['message']['id']}
+    assert view['hint'] is None
+    assert ks.public_view(dict(raw, heartbeat=110.), now=110.)['message'] is None
+    assert ks.admin_view(raw, now=100.)['recorded_scope'] == 'Sejak layanan dimulai'

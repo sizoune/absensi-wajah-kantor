@@ -173,6 +173,16 @@ class IntegrationStore:
             self._db.execute('UPDATE events SET response=? WHERE event_id=?',
                              (self._encrypt(body, f'response:{event_id}'), event_id))
 
+    def terminal(self, event_id: str) -> dict[str, JSONValue] | None:
+        """Indexed, authenticated lookup for the current kiosk message after queue overflow."""
+        event_id = _event_id(event_id)
+        with self._lock:
+            row = self._db.execute('SELECT response FROM events WHERE event_id=?', (event_id,)).fetchone()
+            if row is None or row[0] is None:
+                return None
+            self._validate_stored_response(event_id, row[0])
+            return json.loads(self._decrypt(row[0], f'response:{event_id}'))
+
     def save_clock_anchor(self, anchor: ClockAnchorMetadata) -> None:
         _validate_clock_metadata(anchor)
         body = json.dumps(anchor, sort_keys=True, separators=(',', ':')).encode('utf-8')

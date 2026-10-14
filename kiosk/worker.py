@@ -11,8 +11,21 @@ Prinsip:
 - Kamera atau database bermasalah: status berubah, tidak ada absensi palsu.
 - Tidak ada gambar yang disimpan.
 """
+from __future__ import annotations
+
 import logging
 import time
+import json
+import sqlite3
+from queue import Empty
+from uuid import uuid4
+from typing import TYPE_CHECKING
+
+from integration.clock import ClockUnavailable, TrustedClock
+from integration.store import IntegrationStore, StoreIntegrityError
+from integration.sync import SyncWorker
+if TYPE_CHECKING:
+    from recognition.eoffice_identify import EofficeEvent, EofficeGallery, EofficeModels
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -60,7 +73,11 @@ class KioskWorker:
                  clock=time.monotonic, wall_clock=time.time, on_frame=None,
                  liveness=None, liveness_settings=None, match_threshold=0.6, match_margin=0.05,
                  enroll_poll_seconds=ENROLL_POLL_SECONDS, enroll_timeout=ENROLL_TIMEOUT_SECONDS,
-                 enroll_start_delay=enrollment.START_DELAY):
+                 enroll_start_delay=enrollment.START_DELAY, *,
+                 integration_store: IntegrationStore | None = None,
+                 sync_worker: SyncWorker | None = None,
+                 trusted_clock: TrustedClock | None = None,
+                 eoffice_models: EofficeModels | None = None):
         self.app = app
         self.camera = camera
         self.detector = detector
@@ -81,6 +98,21 @@ class KioskWorker:
         self.liveness_settings = liveness_settings or LivenessSettings(mode="off")
         self.gate = LivenessGate(self.liveness_settings)
         self.liveness_rejected = 0
+
+        self.eoffice = app.config.get('ATTENDANCE_MODE', 'standalone') == 'eoffice'
+        self.integration_store, self.sync_worker = integration_store, sync_worker
+        self.trusted_clock, self.eoffice_models = trusted_clock, eoffice_models
+        self.gallery: EofficeGallery | None = None
+        self._integration_checked = -1e9
+        self._frame_time = None
+        self._current_event: str | None = None
+        self._queued_tracks: set[int] = set()
+        if self.eoffice:
+            if (integration_store is None or sync_worker is None or trusted_clock is None
+                    or eoffice_models is None or self.liveness_settings.mode != 'passive'):
+                raise ValueError('E-office requires durable queue, sync, clock, both models and passive gates')
+            from recognition.eoffice_identify import EofficeTracker
+            self.tracker = EofficeTracker(tracker_settings)
 
         self.matcher = None
         self._loaded_at = -1e9
@@ -111,6 +143,9 @@ class KioskWorker:
         db.session.rollback()
 
     def reload_templates(self, force=False):
+        if self.eoffice:
+            self.reconcile_eoffice(force=force)
+            return
         now = self.clock()
         if not force and now - self._loaded_at < self.template_reload_seconds:
             return
@@ -135,6 +170,121 @@ class KioskWorker:
             except SQLAlchemyError:
                 pass
 
+    def _say_eoffice(self, status: str, first_name: str = '', event_id: str | None = None) -> None:
+        self.message = {'status': status, 'first_name': first_name.split()[0] if first_name.split() else '',
+                        'id': event_id or str(uuid4()), 'at': self.wall_clock()}
+
+    def reconcile_eoffice(self, force: bool = False) -> None:
+        now = self.clock()
+        if not force and now - self._integration_checked < .5:
+            return
+        self._integration_checked = now
+        # Discard best-effort notifications; durable responses and worker totals survive overflow.
+        for _ in range(self.sync_worker.results.maxsize):
+            try:
+                self.sync_worker.results.get_nowait()
+            except Empty:
+                break
+        status = self.sync_worker.status
+        self.recorded = status.recorded_count
+        try:
+            if self.gallery is None or status.snapshot_id and status.snapshot_id != self.gallery.snapshot_id:
+                snapshot = self.integration_store.load_snapshot()
+                if snapshot is not None:
+                    from recognition.eoffice_identify import EofficeGallery
+                    self.gallery = EofficeGallery(snapshot, self.eoffice_models)
+            if status.storage == 'error':
+                self._say_eoffice('storage')
+            elif status.auth == 'paused':
+                self._say_eoffice('operator')
+            elif (self._current_event and self.message and self.message['id'] == self._current_event
+                  and self.wall_clock() - self.message['at'] <= ks.MESSAGE_SECONDS):
+                result = self.integration_store.terminal(self._current_event)
+                if result is not None:
+                    data = result.get('data', {})
+                    outcome = data.get('outcome')
+                    display = {'duplicate': 'duplicate', 'outside_schedule': 'outside_schedule',
+                               'rejected': 'uncertain'}.get(outcome, 'operator')
+                    if outcome == 'recorded':
+                        display = {'check_in': 'check_in', 'check_out': 'check_out'}.get(data.get('session'), 'operator')
+                    self._say_eoffice(display, self.message['first_name'], self._current_event)
+                    self._current_event = None
+        except (OSError, sqlite3.Error, StoreIntegrityError):
+            self._say_eoffice('storage')
+            self.gallery = None
+        except ValueError:
+            self._say_eoffice('operator')
+            self.gallery = None
+
+    def _enqueue_eoffice(self, event: EofficeEvent) -> str | None:
+        if event.in_cooldown:
+            self._say_eoffice('uncertain', event.first_name)
+            return None
+        if event.track_id in self._queued_tracks:
+            return None
+        try:
+            proof = self._frame_time
+            if (self.gallery is None or proof is None or event.capture_monotonic != self._capture_at
+                    or event.snapshot_id != self.gallery.snapshot_id
+                    or proof['clock_anchor_id'] != event.snapshot_id):
+                raise ValueError('Capture proof and gallery differ')
+            employee = self.gallery.employees.get((event.embedding_version, event.pegawai_id))
+            if (employee is None or (employee['enrollment_id'], employee['enrollment_revision'], employee['verification_type'])
+                    != (event.enrollment_id, event.enrollment_revision, event.verification_type)):
+                raise ValueError('Enrollment differs from snapshot')
+            policy = self.gallery.policies[event.embedding_version]
+            if (type(event.score) not in (int, float) or type(event.second_score) not in (int, float)
+                    or type(event.samples) is not int or not policy['liveness']['min_samples'] <= event.samples <= 10
+                    or not -1 <= event.second_score <= 1 or not policy['threshold'] <= event.score <= 1
+                    or event.score - event.second_score < policy['margin']):
+                raise ValueError('Invalid capture evidence')
+            event_id = str(uuid4())
+            body = dict(protocol_version=1, event_id=event_id, pegawai_id=event.pegawai_id,
+                        snapshot_id=event.snapshot_id, enrollment_id=event.enrollment_id,
+                        enrollment_revision=event.enrollment_revision, verification_type=event.verification_type,
+                        embedding_version=event.embedding_version, evidence={'score': event.score,
+                        'second_score': event.second_score, 'quality_ok': True, 'live': True, 'samples': event.samples}, **proof)
+            self.integration_store.enqueue(json.dumps(body, allow_nan=False, separators=(',', ':')).encode('utf-8'))
+            self._queued_tracks.add(event.track_id)
+            self._current_event = event_id
+            self._say_eoffice('pending', event.first_name, event_id)
+            self.sync_worker.wake()
+            return event_id
+        except (OSError, sqlite3.Error, StoreIntegrityError):
+            self._say_eoffice('storage')
+        except ValueError:
+            self._say_eoffice('uncertain')
+        return None
+
+    def _step_eoffice(self, frame, captured_at=None):
+        from recognition.eoffice_identify import recognize_eoffice_frame
+        now = self.clock() if captured_at is None else captured_at
+        self._capture_at = now
+        if self.sync_worker.status.auth == 'paused' or self.sync_worker.status.storage == 'error':
+            self._say_eoffice('storage' if self.sync_worker.status.storage == 'error' else 'operator')
+            self.tracker.tracks.clear()
+            self.tracker.provenance.clear()
+            return []
+        try:
+            self._frame_time = self.trusted_clock.event_time(now)
+            if self.gallery is None or self._frame_time['clock_anchor_id'] != self.gallery.snapshot_id:
+                raise ClockUnavailable('Gallery not anchored')
+        except ClockUnavailable:
+            self._frame_time = None
+            self.tracker.tracks.clear()
+            self.tracker.provenance.clear()
+            self._say_eoffice('operator')
+            return []
+        tracks, events = recognize_eoffice_frame(frame, self.detector, self.eoffice_models, self.gallery,
+                                                 self.quality, self.tracker, now)
+        self._queued_tracks.intersection_update(t.id for t in self.tracker.tracks)
+        for event in events:
+            self.handle_event(event)
+        if tracks and not events and (any(t.confirmed_id is None for t in tracks)
+                or any(t.id in gate.rejected_tracks for t in tracks for gate in self.tracker.gates.values())):
+            self._say_eoffice('uncertain')
+        return tracks
+
     def _say(self, kind, text):
         self.message = {"kind": kind, "text": text, "at": self.wall_clock()}
 
@@ -148,9 +298,11 @@ class KioskWorker:
             "detail": self.detail,
             "message": self.message,
             "hint": self.hint,
-            "employees": self.matcher.employee_count if self.matcher else 0,
+            "employees": (len({key[1] for key in self.gallery.employees}) if self.eoffice and self.gallery
+                          else self.matcher.employee_count if self.matcher else 0),
             "recorded": self.recorded,
             "liveness": self.liveness_settings.mode,
+            "mode": "eoffice" if self.eoffice else "standalone",
         }, clock=self.wall_clock)
         if not ok:
             self.publish_skipped += 1
@@ -160,6 +312,8 @@ class KioskWorker:
 
     def handle_event(self, event):
         """Identitas dipastikan pelacak -> minta keputusan absensi."""
+        if self.eoffice:
+            return self._enqueue_eoffice(event)
         if event.in_cooldown:
             return None
         decision = att.record(event.employee_id, score=event.score,
@@ -191,8 +345,10 @@ class KioskWorker:
         )
         log.warning("Anti-foto menolak karyawan id=%s: %s", event.employee_id, reason)
 
-    def step(self, frame):
+    def step(self, frame, captured_at=None):
         """Memproses satu frame. Mengembalikan daftar jejak (untuk pratinjau)."""
+        if self.eoffice:
+            return self._step_eoffice(frame, captured_at)
         if self.matcher is None or self.matcher.template_count == 0:
             self.hint = None
             if not self.detail:
@@ -228,6 +384,8 @@ class KioskWorker:
     def check_enrollment(self):
         """Mengambil permintaan pendaftaran dari antrean (jika ada) lalu
         menjalankannya. Mengembalikan True jika satu pendaftaran dijalankan."""
+        if self.eoffice:
+            return False
         now = self.clock()
         if now - self._last_enroll_poll < self.enroll_poll_seconds:
             return False
@@ -244,6 +402,8 @@ class KioskWorker:
         return True
 
     def run_enrollment(self, req):
+        if self.eoffice:
+            raise ValueError('Enrollment is managed by e-office')
         employee = req.employee
         first = (employee.full_name or "").split()[0] if employee.full_name else "karyawan"
         label = f"{first} (kode ...{employee.employee_code[-4:]})"
@@ -355,6 +515,7 @@ class KioskWorker:
     def read_frame(self):
         try:
             frame = self.camera.read()
+            self._capture_at = self.clock()
             if self.camera_status != ks.CAMERA_OK:
                 self.camera_status = ks.CAMERA_OK
                 self.detail = ""
@@ -363,7 +524,7 @@ class KioskWorker:
             if self.camera_status != ks.CAMERA_ERROR:
                 log.error("Kamera bermasalah: %s", exc)
             self.camera_status = ks.CAMERA_ERROR
-            self.detail = str(exc)
+            self.detail = "Hubungi operator" if self.eoffice else str(exc)
             self.hint = None
             now = self.clock()
             if now - self._last_reopen >= self.reopen_seconds:
@@ -382,7 +543,7 @@ class KioskWorker:
         if self.check_enrollment():
             return True
         frame = self.read_frame()
-        tracks = self.step(frame) if frame is not None else []
+        tracks = (self.step(frame, captured_at=self._capture_at) if self.eoffice else self.step(frame)) if frame is not None else []
         self.publish()
         if self.on_frame is not None and frame is not None:
             return self.on_frame(frame, tracks)
@@ -393,6 +554,8 @@ class KioskWorker:
         aman dijalankan dari thread mana pun."""
         with self.app.app_context():
             try:
+                if self.eoffice:
+                    self.sync_worker.start()
                 self.reload_templates(force=True)
                 self.publish(force=True)
                 while not should_stop():
@@ -405,12 +568,18 @@ class KioskWorker:
                         # transaksinya sendiri, jadi melanjutkan tetap aman.
                         self.unexpected_errors += 1
                         log.exception("Galat tak terduga di layanan kamera; dilanjutkan.")
-                        db.session.rollback()
+                        if self.eoffice:
+                            self._say_eoffice("operator")
+                            self.publish(force=True)
+                        else:
+                            db.session.rollback()
                         idle_sleep(1.0)
                         continue
                     if self.camera_status == ks.CAMERA_ERROR:
                         idle_sleep(0.5)
             finally:
+                if self.eoffice:
+                    self.sync_worker.stop(timeout=6.0)
                 self.camera_status = "stopped"
                 try:
                     self.publish(force=True)

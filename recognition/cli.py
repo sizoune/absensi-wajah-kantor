@@ -22,6 +22,8 @@ from services.cli_errors import friendly_db_errors
 
 
 def _load_models(app):
+    if app.config.get('ATTENDANCE_MODE', 'standalone') == 'eoffice':
+        raise click.ClickException('Pengenalan dan pendaftaran lokal tidak tersedia dalam mode e-office.')
     from recognition import model_files as mf
     from recognition.detector import QualitySettings, YuNetDetector
     from recognition.embedder import SFaceEmbedder

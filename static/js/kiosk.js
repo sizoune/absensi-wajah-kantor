@@ -36,6 +36,7 @@
   }
 
   function render(data) {
+    el.panel.dataset.messageId = data.message && data.message.id || "";
     el.clock.textContent = data.time;
     el.date.textContent = data.date;
 

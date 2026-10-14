@@ -213,3 +213,11 @@ def test_tanpa_permintaan_kios_tetap_absensi_biasa(app, tmp_path, sari):
         assert worker.check_enrollment() is False
         worker.run_once()
     assert worker.enrollments == []
+
+
+def test_eoffice_never_creates_local_enrollment_request(app, client, sari, writer, monkeypatch):
+    app.config['ATTENDANCE_MODE'] = 'eoffice'
+    monkeypatch.setattr(fe, 'create', lambda *a, **k: pytest.fail('local enrollment called'))
+    res = client.post(f'/api/employees/{sari.id}/face-enrollment', headers=h(writer), json={})
+    assert res.status_code == 409
+    assert db.session.query(FaceEnrollmentRequest).count() == 0
