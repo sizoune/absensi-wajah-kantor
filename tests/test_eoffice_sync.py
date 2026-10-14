@@ -426,3 +426,64 @@ def test_snapshot_auth_pause_never_retains_reconnect_busy_poll_delay(store):
     status = value.run_once()
     assert status.auth == 'paused' and status.retry_after == 60
     assert value.run_once().retry_after == 60
+
+
+NESTED_RESPONSE = b'{"value":' + b'[' * 2000 + b'0' + b']' * 2000 + b'}'
+
+
+@pytest.mark.parametrize('endpoint', ['snapshot', 'event'])
+def test_deeply_nested_bounded_json_is_a_validation_error(monkeypatch, endpoint):
+    client, _ = transport_client(monkeypatch, NESTED_RESPONSE)
+    with pytest.raises(ValueError, match='JSON nesting'):
+        client.snapshot() if endpoint == 'snapshot' else client.send(json.dumps(EVENT).encode())
+
+
+def test_nested_snapshot_does_not_starve_pending_send_and_later_refresh_recovers(store, monkeypatch):
+    client, requests = transport_client(monkeypatch, NESTED_RESPONSE)
+    damaged = [True]
+    original = store.pending()[0].body
+    store.replace_snapshot(SNAPSHOT)
+    def respond(request, timeout):
+        requests.append((request, timeout))
+        if request.data is not None:
+            return Response(json.dumps(terminal(EVENT['event_id'])).encode())
+        return Response(NESTED_RESPONSE if damaged[0] else json.dumps(SNAPSHOT).encode())
+    monkeypatch.setattr(client._opener, 'open', respond)
+    value = worker(store, client)
+    status = value.run_once()
+    assert status.events_sent == 1 and store.pending() == []
+    assert store.load_snapshot() == SNAPSHOT
+    assert [request.data for request, _ in requests if request.data is not None] == [original]
+    damaged[0] = False
+    value._monotonic = lambda: 11.0
+    assert value.run_once().connection == 'online'
+
+
+def test_nested_event_response_keeps_background_worker_alive_and_original_retry_bytes(store, tmp_path, monkeypatch):
+    from integration.sync import SyncWorker
+    client, requests = transport_client(monkeypatch, NESTED_RESPONSE)
+    damaged = [True]
+    original = store.pending()[0].body
+    def respond(request, timeout):
+        requests.append((request, timeout))
+        if request.data is None:
+            return Response(json.dumps(SNAPSHOT).encode())
+        return Response(NESTED_RESPONSE if damaged[0] else json.dumps(terminal(EVENT['event_id'])).encode())
+    monkeypatch.setattr(client._opener, 'open', respond)
+    dedicated = IntegrationStore(tmp_path / 'eoffice.sqlite3', bytes(range(32)))
+    value = SyncWorker(dedicated, client)
+    now = [10.0]
+    value._monotonic = lambda: now[0]
+    value.start()
+    try:
+        assert value.results.get(timeout=2).connection == 'error'
+        assert value._thread.is_alive()
+        assert store.pending()[0].body == original
+        damaged[0] = False
+        now[0] = 11.0
+        value.wake()
+        assert value.results.get(timeout=2).events_sent == 1
+        assert store.pending() == []
+        assert [request.data for request, _ in requests if request.data is not None] == [original, original]
+    finally:
+        assert value.stop(2)

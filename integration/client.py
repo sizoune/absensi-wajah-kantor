@@ -38,7 +38,10 @@ def _invalid_constant(value: str) -> None:
 
 
 def _json(body: bytes) -> dict[str, JSONValue]:
-    result = json.loads(body.decode('utf-8'), object_pairs_hook=_object, parse_constant=_invalid_constant)
+    try:
+        result = json.loads(body.decode('utf-8'), object_pairs_hook=_object, parse_constant=_invalid_constant)
+    except RecursionError as exc:
+        raise ValueError('Invalid e-office JSON nesting') from exc
     if type(result) is not dict:
         raise ValueError('Expected e-office JSON object')
     return cast(dict[str, JSONValue], result)

@@ -40,6 +40,7 @@ class SyncWorker:
     def __init__(self, store: IntegrationStore, client: SyncClient, clock: TrustedClock | None = None) -> None:
         """store is dedicated to this worker; start transfers close ownership to its thread."""
         self.store, self.client, self.clock = store, client, clock
+        # Best-effort UI delivery: overflow can drop terminal notifications; reconcile from durable state.
         self.results: Queue[SyncStatus] = Queue(maxsize=32)
         self.status = SyncStatus()
         self._monotonic: Callable[[], float] = time.monotonic
