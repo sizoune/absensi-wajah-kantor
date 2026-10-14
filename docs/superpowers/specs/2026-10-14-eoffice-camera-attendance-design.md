@@ -1,7 +1,7 @@
 # Integrasi absensi kamera kantor dengan e-office
 
 Tanggal: 14 Oktober 2026 (WITA)
-Status: desain percakapan disetujui; dokumen ini menunggu tinjauan pengguna.
+Status: spesifikasi disetujui pengguna pada 14 Oktober 2026; rencana implementasi disiapkan untuk tinjauan terpisah.
 Repositori terkait: `absensi-wajah-kantor`, `e-office-api-main`, serta aplikasi mobile sebagai acuan model periocular dan pengujian kompatibilitas.
 
 ## 1. Tujuan dan keputusan pengguna
