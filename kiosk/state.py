@@ -41,6 +41,33 @@ EOFFICE_MESSAGES = {
 }
 
 
+def integration_view(value: object) -> dict[str, str]:
+    """Allowlist global health independently of expiring person messages."""
+    value = value if isinstance(value, dict) else {}
+    labels = {
+        'connection': {'online': 'E-office terhubung', 'offline': 'E-office terputus', 'error': 'Koneksi e-office bermasalah'},
+        'storage': {'ok': 'Penyimpanan siap', 'error': 'Penyimpanan bermasalah'},
+        'auth': {'ok': 'Akses perangkat aktif', 'paused': 'Akses perangkat tertahan'},
+        'clock': {'ok': 'Waktu capture siap', 'unavailable': 'Waktu capture belum tersedia'},
+    }
+    defaults = {'connection': 'error', 'storage': 'error', 'auth': 'paused', 'clock': 'unavailable'}
+    health = {key: value.get(key) if isinstance(value.get(key), str) and value.get(key) in options else defaults[key]
+              for key, options in labels.items()}
+    if health['storage'] == 'error':
+        action = 'Hubungi operator untuk memeriksa penyimpanan; jangan hapus antrean.'
+    elif health['auth'] == 'paused':
+        action = 'Hubungi operator untuk memulihkan akses perangkat.'
+    elif health['clock'] == 'unavailable':
+        action = 'Hubungi operator untuk memeriksa waktu dan sinkronisasi e-office.'
+    elif health['connection'] == 'error':
+        action = 'Hubungi operator untuk memeriksa layanan e-office.'
+    elif health['connection'] == 'offline':
+        action = 'Periksa koneksi jaringan; antrean tersimpan akan dicoba kembali.'
+    else:
+        action = ''
+    return {**health, 'text': ' · '.join(labels[key][health[key]] for key in labels), 'action': action}
+
+
 class KioskState:
     def __init__(self, path, sleep=time.sleep, replace=os.replace):
         self.path = Path(path)
@@ -101,7 +128,7 @@ def public_view(state, now=None, stale_seconds=STALE_SECONDS, message_seconds=ME
             public_message = {'kind': kind, 'text': (first[0] + ': ' if first else '') + text,
                               'id': message.get('id')}
         return {'online': True, 'camera': state.get('camera', CAMERA_STARTING),
-                'message': public_message, 'hint': None}
+                'message': public_message, 'hint': None, 'integration': integration_view(state.get('integration'))}
     return {
         "online": True,
         "camera": state.get("camera", CAMERA_STARTING),
@@ -126,4 +153,5 @@ def admin_view(state, now=None, stale_seconds=STALE_SECONDS):
         **({"recorded_this_run": state.get("recorded", 0), "recorded_scope": "Sejak layanan dimulai"}
            if state.get("mode") == "eoffice" else {"recorded_today": state.get("recorded", 0)}),
         "liveness": state.get("liveness") or "off",
+        **({"integration": integration_view(state.get("integration"))} if state.get("mode") == "eoffice" else {}),
     }

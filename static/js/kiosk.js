@@ -15,7 +15,8 @@
     message: document.getElementById("message"),
     hint: document.getElementById("hint"),
     dot: document.getElementById("camera-dot"),
-    cameraText: document.getElementById("camera-text")
+    cameraText: document.getElementById("camera-text"),
+    integration: document.getElementById("integration-health")
   };
 
   var IDLE_TEXT = "Silakan berjalan di depan kamera.";
@@ -43,6 +44,9 @@
     var camera = data.online ? data.camera : "offline";
     el.dot.className = "dot " + (camera === "ok" ? "dot-ok" : camera === "starting" ? "dot-wait" : "dot-off");
     el.cameraText.textContent = CAMERA_TEXT[camera] || camera;
+    el.integration.hidden = !data.online || !data.integration;
+    el.integration.textContent = data.online && data.integration
+      ? data.integration.text + (data.integration.action ? ". " + data.integration.action : "") : "";
 
     if (!data.online || camera === "stopped") {
       setPanel("error", OFFLINE_TEXT);
@@ -70,6 +74,8 @@
         el.cameraText.textContent = "Server tidak dapat dihubungi";
         setPanel("error", "Server absensi tidak dapat dihubungi. Hubungi admin.");
         el.hint.hidden = true;
+        el.integration.hidden = true;
+        el.integration.textContent = "";
       })
       .finally(function () { setTimeout(poll, 1000); });
   }

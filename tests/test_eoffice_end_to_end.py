@@ -134,6 +134,8 @@ class Journey:
         self.worker_store = IntegrationStore(self.path, self.key)
         self.clock = TrustedClock(self.worker_store, wall_time=lambda: self.now)
         self.client = EofficeClient('https://fixture.test', api.secret)
+        self.client._monotonic = lambda: self.now
+        self.client._wall_time = lambda: self.now
         monkeypatch.setattr(self.client._opener, 'open', api.open)
         self.sync = SyncWorker(self.worker_store, self.client, self.clock)
         self.sync._monotonic = lambda: self.now
@@ -349,3 +351,30 @@ def test_failed_transaction_rolls_back_then_retries_queue_bytes(journey: Journey
     assert j.api.sent == [event.body, event.body]
     assert j.result(event)['outcome'] == 'recorded'
     assert official(j.api.command('state'), 1)['ad_time'] == '07:25:00'
+
+
+def test_slow_snapshot_crosses_lateness_boundary_using_physical_capture_time(journey: Journey, monkeypatch: Any) -> None:
+    j = journey
+    j.api.command('clock', at='2026-10-14T07:59:59+08:00')
+    j.at('2026-10-14T07:59:59+08:00')
+    def slow_snapshot(request, timeout):
+        response = j.api.open(request, timeout)
+        if request.full_url.endswith('/api/kiosk/snapshot'):
+            read = response.read
+            def slow_read(*args):
+                j.now += 90
+                return read(*args)
+            response.read = slow_read
+        return response
+    monkeypatch.setattr(j.client._opener, 'open', slow_snapshot)
+    assert j.sync.run_once().clock == 'ok'
+    monkeypatch.setattr(j.client._opener, 'open', j.api.open)
+    event = j.capture('2026-10-14T08:01:30+08:00')
+    assert json.loads(event.body)['occurred_at'] == '2026-10-14T08:01:30.000+08:00'
+    assert json.loads(event.body)['snapshot_id'] == j.snapshot['snapshot_id']
+    j.send('2026-10-14T08:01:31+08:00')
+    assert j.result(event)['outcome'] == 'recorded'
+    row = official(j.api.command('state'), 1)
+    assert row['ad_time'] == '08:01:30'
+    assert row['ad_is_late'] == 1
+    assert row['ad_late_length'] == 90

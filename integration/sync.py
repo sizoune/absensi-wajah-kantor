@@ -18,6 +18,9 @@ from integration.store import IntegrationStore, PendingEvent, StoreIntegrityErro
 
 class SyncClient(Protocol):
     snapshot_server_time: datetime | None
+    snapshot_received_monotonic: float | None
+    snapshot_received_wall_time: float | None
+    snapshot_uncertainty_seconds: float | None
     def snapshot(self) -> dict[str, JSONValue]: ...
     def send(self, event_bytes: bytes) -> dict[str, JSONValue]: ...
 
@@ -79,12 +82,17 @@ class SyncWorker:
             old = self.store.load_snapshot()
             self.store.replace_snapshot(snapshot)
             if self.clock is not None:
-                self.clock.anchor(current, snapshot['clock_anchor_id'], self._monotonic(), issued_at=snapshot['issued_at'])
+                self.clock.anchor(current, snapshot['clock_anchor_id'], self.client.snapshot_received_monotonic,
+                                  issued_at=snapshot['issued_at'],
+                                  wall_time_at_anchor=self.client.snapshot_received_wall_time,
+                                  uncertainty_seconds=self.client.snapshot_uncertainty_seconds)
             self._snapshot_failures = 0
             self._next_snapshot = self._monotonic() + 60
             return replace(status, connection='online', clock='ok' if self.clock is not None else 'unavailable',
                            gallery_changed=old != snapshot, snapshot_id=snapshot['snapshot_id'])
         except (OSError, sqlite3.Error, HTTPException, ValueError, RequestFailure, StoreIntegrityError) as error:
+            if self.clock is not None and isinstance(error, ValueError):
+                self.clock.invalidate()
             self._snapshot_failures += 1
             self._next_snapshot = self._monotonic() + min(2 ** min(self._snapshot_failures - 1, 6), 60)
             return self._failure(replace(status, clock='unavailable'), error)

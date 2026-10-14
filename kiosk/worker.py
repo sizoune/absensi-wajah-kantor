@@ -32,6 +32,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from camera.webcam import CameraError
 from extensions import db
 from kiosk import state as ks
+from kiosk.sound import play_result
 from recognition import enrollment
 from recognition.identify import process_frame
 from recognition.liveness import REASON_TEXT, LivenessGate, LivenessSettings
@@ -104,6 +105,7 @@ class KioskWorker:
         self.trusted_clock, self.eoffice_models = trusted_clock, eoffice_models
         self.gallery: EofficeGallery | None = None
         self._integration_checked = -1e9
+        self._integration_storage_error = False
         self._frame_time = None
         self._current_event: str | None = None
         self._queued_tracks: set[int] = set()
@@ -171,8 +173,14 @@ class KioskWorker:
                 pass
 
     def _say_eoffice(self, status: str, first_name: str = '', event_id: str | None = None) -> None:
-        self.message = {'status': status, 'first_name': first_name.split()[0] if first_name.split() else '',
+        first = first_name.split()[0] if first_name.split() else ''
+        changed = (not self.message or self.message['status'] != status
+                   or self.message['first_name'] != first
+                   or event_id is not None and self.message['id'] != event_id)
+        self.message = {'status': status, 'first_name': first,
                         'id': event_id or str(uuid4()), 'at': self.wall_clock()}
+        if changed and status in ('check_in', 'check_out', 'outside_schedule', 'uncertain', 'storage', 'operator'):
+            play_result(status in ('check_in', 'check_out'))
 
     def reconcile_eoffice(self, force: bool = False) -> None:
         now = self.clock()
@@ -210,6 +218,7 @@ class KioskWorker:
                     self._say_eoffice(display, self.message['first_name'], self._current_event)
                     self._current_event = None
         except (OSError, sqlite3.Error, StoreIntegrityError):
+            self._integration_storage_error = True
             self._say_eoffice('storage')
             self.gallery = None
         except ValueError:
@@ -245,12 +254,14 @@ class KioskWorker:
                         embedding_version=event.embedding_version, evidence={'score': event.score,
                         'second_score': event.second_score, 'quality_ok': True, 'live': True, 'samples': event.samples}, **proof)
             self.integration_store.enqueue(json.dumps(body, allow_nan=False, separators=(',', ':')).encode('utf-8'))
+            self._integration_storage_error = False
             self._queued_tracks.add(event.track_id)
             self._current_event = event_id
             self._say_eoffice('pending', event.first_name, event_id)
             self.sync_worker.wake()
             return event_id
         except (OSError, sqlite3.Error, StoreIntegrityError):
+            self._integration_storage_error = True
             self._say_eoffice('storage')
         except ValueError:
             self._say_eoffice('uncertain')
@@ -293,6 +304,18 @@ class KioskWorker:
         if not force and now - self._last_publish < 0.5:
             return
         self._last_publish = now
+        integration = {}
+        if self.eoffice:
+            status = self.sync_worker.status
+            clock_status = 'unavailable'
+            try:
+                proof = self.trusted_clock.event_time(now)
+                if self.gallery is not None and proof['clock_anchor_id'] == self.gallery.snapshot_id:
+                    clock_status = 'ok'
+            except ClockUnavailable:
+                pass
+            integration = {'connection': status.connection, 'auth': status.auth, 'clock': clock_status,
+                           'storage': 'error' if self._integration_storage_error else status.storage}
         ok = self.state.publish({
             "camera": self.camera_status,
             "detail": self.detail,
@@ -303,6 +326,7 @@ class KioskWorker:
             "recorded": self.recorded,
             "liveness": self.liveness_settings.mode,
             "mode": "eoffice" if self.eoffice else "standalone",
+            **({"integration": integration} if self.eoffice else {}),
         }, clock=self.wall_clock)
         if not ok:
             self.publish_skipped += 1

@@ -460,3 +460,19 @@ def test_eoffice_message_is_safe_and_expires():
     assert view['hint'] is None
     assert ks.public_view(dict(raw, heartbeat=110.), now=110.)['message'] is None
     assert ks.admin_view(raw, now=100.)['recorded_scope'] == 'Sejak layanan dimulai'
+
+
+def test_eoffice_health_is_available_on_public_route_and_admin_dashboard(app, client, auth_client, tmp_path):
+    import time
+    path = tmp_path / 'integration-state.json'
+    app.config['KIOSK_STATE_FILE'] = str(path)
+    ks.KioskState(path).publish({'mode': 'eoffice', 'camera': 'ok',
+        'message': {'status': 'pending', 'id': 'expired', 'at': time.time() - 30},
+        'integration': {'connection': 'offline', 'storage': 'ok', 'auth': 'ok', 'clock': 'ok'}})
+    data = client.get('/kiosk/status').get_json()
+    assert data['message'] is None
+    assert data['integration']['connection'] == 'offline'
+    dashboard = auth_client.get('/admin').get_data(as_text=True)
+    assert 'E-office terputus' in dashboard and 'Periksa koneksi jaringan' in dashboard
+    page = client.get('/kiosk/').get_data(as_text=True)
+    assert 'id="integration-health"' in page

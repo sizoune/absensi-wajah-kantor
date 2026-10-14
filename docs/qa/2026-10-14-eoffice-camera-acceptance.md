@@ -122,3 +122,9 @@ KIOSK_TEST_DATABASE_URL=mysql://root:kiosk-test-only@127.0.0.1:33317/kiosk_test_
 
 Log aktual dalam direktori workspace yang sama: `fix1-red.log`,
 `fix1-unit-green.log`, `fix1-focused.log`, dan `fix1-focused.xml`.
+
+## Final review fix validation
+
+F-I01 now binds authenticated Date to header-receipt monotonic/wall time, bounds the full request-to-header delay plus one-second Date precision to two seconds, preserves processing/storage elapsed time, and rejects inconsistent backward anchors. Fractional monotonic time is retained through refresh until the final millisecond proof. F-M01 adds optional asynchronous Windows success/failure sound for current message transitions; F-M02 adds persistent allowlisted integration health and safe operator actions to kiosk/admin displays. No API or protocol-body change.
+
+Focused validation: 304 passed with ten disposable HTTP/SQL journeys before the final fractional-time regression; latest changed runtime suites 186 passed, and latest actual disposable HTTP/SQL suite 11 passed (includes a 90-second snapshot download across 08:00, official capture 08:01:30 and 90 seconds lateness). The Node DOM polling regression passed; it is not a physical-browser/device test. Commands use `.venv/bin/python3.11 -m pytest` and only `KIOSK_TEST_DATABASE_URL=mysql://root:kiosk-test-only@127.0.0.1:33317/kiosk_test_camera` for SQL, with the existing prefix guard and mutex. RED/GREEN evidence is retained in the final fix workspace report. Existing broad-suite BAT CRLF failures remain historical failures. All physical/model/native Android+iOS/Windows/audio/TLS/NTP/DDL/writer/SKPD acceptance gates above remain NOTRUN and block official activation.

@@ -94,6 +94,9 @@
     <p><span class="badge badge-off">Tidak berjalan</span> {{ kiosk_status.detail }}
        Jalankan <code>flask --app app kiosk-run</code> di komputer kios.</p>
   {% endif %}
+  {% if kiosk_status.integration is defined %}
+  <p>{{ kiosk_status.integration.text }}{% if kiosk_status.integration.action %}. {{ kiosk_status.integration.action }}{% endif %}</p>
+  {% endif %}
   <p class="muted"><a href="{{ url_for('kiosk.page') }}" target="_blank" rel="noopener">Buka halaman kios</a></p>
   {% if liveness_mode == 'off' %}
   <div class="flash flash-error">

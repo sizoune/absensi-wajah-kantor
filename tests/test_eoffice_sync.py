@@ -3,6 +3,7 @@ import io
 import json
 import sqlite3
 import threading
+import time
 from datetime import datetime, timezone
 from email.message import Message
 from pathlib import Path
@@ -39,6 +40,9 @@ def store(tmp_path):
 
 class Transport:
     snapshot_server_time = DATE
+    snapshot_uncertainty_seconds = 1.0
+    _monotonic = staticmethod(time.monotonic)
+    _wall_time = staticmethod(time.time)
     def __init__(self, replies=(), snapshot=None):
         self.replies = list(replies)
         self.snap = snapshot if snapshot is not None else TimeoutError()
@@ -46,6 +50,8 @@ class Transport:
         self.snap_calls = 0
     def snapshot(self):
         self.snap_calls += 1
+        self.snapshot_received_monotonic = self._monotonic()
+        self.snapshot_received_wall_time = self._wall_time()
         if isinstance(self.snap, Exception):
             raise self.snap
         return copy.deepcopy(self.snap)
@@ -61,6 +67,8 @@ def worker(store, client, clock=None):
     from integration.sync import SyncWorker
     value = SyncWorker(store, client, clock)
     value._monotonic = lambda: 10.0
+    client._monotonic = lambda: value._monotonic()
+    client._wall_time = clock._wall_time if clock else lambda: 1000.0
     return value
 
 

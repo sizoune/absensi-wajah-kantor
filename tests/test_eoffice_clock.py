@@ -128,7 +128,7 @@ def test_anchor_refresh_is_atomic_with_frame_reads():
     other = 'a8812b33-4c8a-457e-9dda-379108ca2134'
     def refresh():
         for _ in range(100):
-            clock.anchor('2026-10-15T07:25:00+08:00', other, 10.0)
+            clock.anchor(ISSUED, other, 10.0)
             clock.anchor(ISSUED, ANCHOR_ID, 10.0)
     def capture():
         return [clock.event_time(10.0) for _ in range(100)]
@@ -136,7 +136,7 @@ def test_anchor_refresh_is_atomic_with_frame_reads():
         update = pool.submit(refresh)
         reads = pool.submit(capture).result()
         update.result()
-    valid = {(ANCHOR_ID, ISSUED), (other, '2026-10-15T07:25:00.000+08:00')}
+    valid = {(ANCHOR_ID, ISSUED), (other, ISSUED)}
     assert all((row['clock_anchor_id'], row['occurred_at']) in valid and row['elapsed_ms'] == 0 for row in reads)
 
 

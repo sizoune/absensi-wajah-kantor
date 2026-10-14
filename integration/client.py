@@ -1,7 +1,9 @@
 """Bounded HTTPS transport for immutable kiosk events and gallery snapshots."""
 
 import json
+import math
 import ssl
+import time
 from datetime import datetime
 from email.utils import format_datetime, parsedate_to_datetime
 from typing import Any, cast
@@ -9,6 +11,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import HTTPSHandler, HTTPRedirectHandler, Request, build_opener
 
+from integration.clock import MAX_ANCHOR_UNCERTAINTY_SECONDS
 from integration.protocol import JSONValue, MAX_SNAPSHOT_BYTES, UUID, validate_snapshot, validate_terminal_response
 
 
@@ -62,11 +65,17 @@ class EofficeClient:
         self._token = token
         self._opener = build_opener(HTTPSHandler(context=ssl.create_default_context()), RejectRedirects())
         self.snapshot_server_time: datetime | None = None
+        self.snapshot_received_monotonic: float | None = None
+        self.snapshot_received_wall_time: float | None = None
+        self.snapshot_uncertainty_seconds: float | None = None
+        self._monotonic = time.monotonic
+        self._wall_time = time.time
 
-    def _request(self, path: str, body: bytes | None, limit: int) -> tuple[int, dict[str, JSONValue], Any]:
+    def _request(self, path: str, body: bytes | None, limit: int) -> tuple[int, dict[str, JSONValue], Any, float, float, float]:
         request = Request(self._base_url + path, data=body, headers={
             'Authorization': 'Bearer ' + self._token, 'Accept': 'application/json',
             'Accept-Encoding': 'identity', 'Cache-Control': 'no-cache', 'Content-Type': 'application/json; charset=utf-8'})
+        started = self._monotonic()
         try:
             response = self._opener.open(request, timeout=5)
         except HTTPError as error:
@@ -74,7 +83,13 @@ class EofficeClient:
                 error.close()
                 raise RequestFailure(error.code) from None
             response = error
+        received_monotonic, received_wall = self._monotonic(), self._wall_time()
+        uncertainty = 1 + received_monotonic - started
         with response:
+            # Date floors to a second; the full round trip bounds unknown one-way delay.
+            if body is None and (not math.isfinite(uncertainty)
+                                 or not 1 <= uncertainty <= MAX_ANCHOR_UNCERTAINTY_SECONDS):
+                raise ValueError('Authenticated server Date uncertainty exceeds clock tolerance')
             code = response.status if hasattr(response, 'status') else response.code
             if code not in (200, 400, 409):
                 raise RequestFailure(code)
@@ -88,11 +103,12 @@ class EofficeClient:
             payload = response.read(limit + 1)
             if len(payload) > limit or length is not None and len(payload) != int(length):
                 raise ValueError('Oversized or partial e-office response')
-            return code, _json(payload), headers
+            return code, _json(payload), headers, received_monotonic, received_wall, uncertainty
 
     def snapshot(self) -> dict[str, JSONValue]:
         self.snapshot_server_time = None
-        code, snapshot, headers = self._request('/api/kiosk/snapshot', None, MAX_SNAPSHOT_BYTES)
+        self.snapshot_received_monotonic = self.snapshot_received_wall_time = self.snapshot_uncertainty_seconds = None
+        code, snapshot, headers, received_monotonic, received_wall, uncertainty = self._request('/api/kiosk/snapshot', None, MAX_SNAPSHOT_BYTES)
         if code != 200:
             raise RequestFailure(code)
         validate_snapshot(snapshot)
@@ -106,6 +122,9 @@ class EofficeClient:
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError('Invalid authenticated server Date') from exc
         self.snapshot_server_time = server_time
+        self.snapshot_received_monotonic = received_monotonic
+        self.snapshot_received_wall_time = received_wall
+        self.snapshot_uncertainty_seconds = uncertainty
         return snapshot
 
     def send(self, event_bytes: bytes) -> dict[str, JSONValue]:
@@ -114,7 +133,7 @@ class EofficeClient:
         event_id = _json(event_bytes).get('event_id')
         if type(event_id) is not str or UUID.fullmatch(event_id) is None:
             raise ValueError('Invalid event ID')
-        code, result, _ = self._request('/api/kiosk/events', event_bytes, 16 * 1024)
+        code, result, _, _, _, _ = self._request('/api/kiosk/events', event_bytes, 16 * 1024)
         if code in (400, 409):
             # Existing API errors use text; the encrypted local terminal contract uses message.
             if (set(result) not in ({'status', 'text'}, {'status', 'text', 'event_id'},

@@ -14,6 +14,7 @@ from integration.store import ClockAnchorMetadata, IntegrationStore
 
 WITA = timezone(timedelta(hours=8))
 MAX_WALL_JUMP_SECONDS = 30
+MAX_ANCHOR_UNCERTAINTY_SECONDS = 2
 
 
 class ClockUnavailable(RuntimeError):
@@ -69,14 +70,16 @@ class TrustedClock:
         self._anchor: _Anchor | None = None
 
     def anchor(self, server_time: datetime | str, anchor_id: str, monotonic_now: float,
-               issued_at: datetime | str | None = None) -> None:
+               issued_at: datetime | str | None = None, *,
+               wall_time_at_anchor: float | None = None, uncertainty_seconds: float = 0) -> None:
         """Only call with time from an authenticated response, never cached state."""
         with self._lock:
+            previous = self._anchor
             self._anchor = None
             server = _timestamp(server_time)
             origin = server if issued_at is None else _timestamp(issued_at)
             monotonic = _seconds(monotonic_now)
-            wall = _seconds(self._wall_time())
+            wall = _seconds(self._wall_time() if wall_time_at_anchor is None else wall_time_at_anchor)
             if type(anchor_id) is not str or UUID.fullmatch(anchor_id) is None:
                 raise ValueError('Invalid integration clock anchor ID')
             current = server
@@ -85,6 +88,16 @@ class TrustedClock:
                 if server.microsecond != 0 or origin - server >= timedelta(seconds=1):
                     raise ValueError('Server clock precedes snapshot issuance')
                 current = origin
+            uncertainty = _seconds(uncertainty_seconds)
+            if uncertainty > MAX_ANCHOR_UNCERTAINTY_SECONDS:
+                raise ValueError('Server time uncertainty exceeds clock tolerance')
+            if previous is not None:
+                delta = monotonic - previous.monotonic
+                predicted = previous.server_time + timedelta(seconds=delta)
+                if delta < 0 or predicted > server + timedelta(seconds=uncertainty):
+                    raise ValueError('Authenticated server time moved backwards')
+                # Both are lower bounds; retain elapsed time when Date floors a refresh.
+                current = max(current, predicted)
             metadata: ClockAnchorMetadata = {
                 'server_time': _audit_time(server), 'issued_at': _audit_time(origin),
                 'clock_anchor_id': anchor_id, 'capture_boot_id': self._capture_boot_id,
@@ -92,6 +105,10 @@ class TrustedClock:
             if self._store is not None:
                 self._store.save_clock_anchor(metadata)
             self._anchor = _Anchor(current, origin, anchor_id, monotonic, wall)
+
+    def invalidate(self) -> None:
+        with self._lock:
+            self._anchor = None
 
     def event_time(self, monotonic_now: float) -> EventTime:
         with self._lock:
@@ -103,7 +120,7 @@ class TrustedClock:
                 wall_delta = _seconds(self._wall_time()) - anchor.wall_time
                 if delta < 0 or abs(wall_delta - delta) > MAX_WALL_JUMP_SECONDS:
                     raise ValueError('Clock changed since authenticated anchor')
-                capture = anchor.server_time + timedelta(milliseconds=int(delta * 1000))
+                capture = anchor.server_time + timedelta(seconds=delta)
                 elapsed_ms = (capture - anchor.issued_at) // timedelta(milliseconds=1)
                 if elapsed_ms > MAX_SAFE_INTEGER:
                     raise ValueError('Clock elapsed time exceeds protocol limit')

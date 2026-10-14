@@ -116,6 +116,7 @@ def test_store_failure_never_shows_pending(kiosk, monkeypatch):
     view = public_view(worker.state.read(), now=.3)
     assert view['message']['text'] == 'Penyimpanan bermasalah'
     assert 'sensitive' not in json.dumps(view)
+    assert view['integration']['storage'] == 'error'
 
 
 def test_no_snapshot_no_anchor_or_proof_mismatch_never_enqueues(kiosk):
@@ -405,3 +406,107 @@ def test_expired_first_live_sample_never_reaches_queue(kiosk, final_time):
     assert worker.integration_store.pending() == []
     assert worker.message['status'] == 'uncertain'
     assert worker.recorded == 0
+
+
+@pytest.fixture
+def desktop_sound(monkeypatch):
+    import sys
+    calls = []
+    monkeypatch.setitem(sys.modules, 'winsound', SimpleNamespace(
+        SND_ALIAS=1, SND_ASYNC=2, SND_NODEFAULT=4,
+        PlaySound=lambda sound, flags: calls.append((sound, flags))))
+    return calls
+
+
+def test_desktop_sound_only_confirms_current_durable_result_once(kiosk, desktop_sound):
+    worker, now, _ = kiosk
+    event, = capture(kiosk)
+    assert all(sound != 'SystemAsterisk' for sound, flags in desktop_sound)
+    desktop_sound.clear()
+    worker._say_eoffice('pending', 'Synthetic', event.event_id)
+    assert desktop_sound == []
+    worker.sync_worker.store.finish(event.event_id, terminal(event.event_id))
+    now[0] = .8
+    worker.reconcile_eoffice(force=True)
+    worker.reconcile_eoffice(force=True)
+    assert desktop_sound == [('SystemAsterisk', 7)]
+    worker._say_eoffice('uncertain')
+    worker._say_eoffice('uncertain')
+    assert desktop_sound == [('SystemAsterisk', 7), ('SystemHand', 7)]
+
+
+@pytest.mark.parametrize('stale', ['other_person', 'expired'])
+def test_old_result_never_plays_official_success(kiosk, desktop_sound, stale):
+    worker, now, _ = kiosk
+    event, = capture(kiosk)
+    if stale == 'other_person':
+        worker._say_eoffice('uncertain')
+    else:
+        now[0] = 10
+    worker.sync_worker.store.finish(event.event_id, terminal(event.event_id))
+    worker.reconcile_eoffice(force=True)
+    assert all(sound != 'SystemAsterisk' for sound, flags in desktop_sound)
+
+
+@pytest.mark.parametrize('unsupported', [True, False])
+def test_unavailable_desktop_audio_never_interrupts_visual_result(kiosk, monkeypatch, unsupported):
+    import sys
+    def fail(*a):
+        raise RuntimeError('no sound device')
+    monkeypatch.setitem(sys.modules, 'winsound', None if unsupported else SimpleNamespace(
+        SND_ALIAS=1, SND_ASYNC=2, SND_NODEFAULT=4, PlaySound=fail))
+    worker, now, _ = kiosk
+    event, = capture(kiosk)
+    worker.sync_worker.store.finish(event.event_id, terminal(event.event_id))
+    now[0] = .8
+    worker.reconcile_eoffice(force=True)
+    assert worker.message['status'] == 'check_in'
+
+
+@pytest.mark.parametrize('fault,action', [
+    ({'connection': 'offline'}, 'Periksa koneksi jaringan; antrean tersimpan akan dicoba kembali.'),
+    ({'connection': 'error'}, 'Hubungi operator untuk memeriksa layanan e-office.'),
+    ({'storage': 'error'}, 'Hubungi operator untuk memeriksa penyimpanan; jangan hapus antrean.'),
+    ({'auth': 'paused'}, 'Hubungi operator untuk memulihkan akses perangkat.'),
+    ({'clock': 'unavailable'}, 'Hubungi operator untuk memeriksa waktu dan sinkronisasi e-office.'),
+])
+def test_integration_health_persists_after_person_message_expires(kiosk, fault, action):
+    from kiosk.state import admin_view
+    worker, now, _ = kiosk
+    worker.sync_worker._publish(replace(SyncStatus(connection='online', clock='ok'), **fault))
+    if fault.get('clock') == 'unavailable':
+        worker.trusted_clock.invalidate()
+    worker.reconcile_eoffice(force=True)
+    worker._say_eoffice('pending', 'Synthetic')
+    now[0] = 10
+    worker.publish(force=True)
+    raw = worker.state.read()
+    for view in (public_view(raw, now=10), admin_view(raw, now=10)):
+        assert view['integration']['action'] == action
+        for key, value in fault.items():
+            assert view['integration'][key] == value
+    assert public_view(raw, now=10)['message'] is None
+
+
+def test_offline_health_distinguishes_usable_current_boot_clock(kiosk):
+    worker, _, _ = kiosk
+    worker.sync_worker._publish(SyncStatus(connection='offline', clock='unavailable'))
+    worker.publish(force=True)
+    health = public_view(worker.state.read(), now=0)['integration']
+    assert health['connection'] == 'offline' and health['clock'] == 'ok'
+    worker.trusted_clock.invalidate()
+    worker.publish(force=True)
+    assert public_view(worker.state.read(), now=0)['integration']['clock'] == 'unavailable'
+
+
+def test_health_views_allowlist_fields_and_values():
+    from kiosk.state import admin_view
+    raw = {'heartbeat': 10, 'mode': 'eoffice', 'integration': {
+        'connection': 'secret-token', 'storage': 'raw error', 'auth': 'pegawai_id=101',
+        'clock': 'score=.9', 'action': 'credential secret', 'templates': [1, 2, 3]}}
+    for view in (public_view(raw, now=10), admin_view(raw, now=10)):
+        health = view['integration']
+        assert health['connection'] == 'error' and health['storage'] == 'error'
+        assert health['auth'] == 'paused' and health['clock'] == 'unavailable'
+        assert not any(value in json.dumps(health) for value in ('secret', 'raw error', '101', 'score', 'templates'))
+    assert 'integration' not in public_view(dict(raw, mode='standalone'), now=10)
