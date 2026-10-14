@@ -218,3 +218,15 @@ def test_rejects_non_string_verification_types_without_coercion(snapshot, index)
         bad['employees'][index]['verification_type'] = value
         with pytest.raises(ValueError):
             validate_snapshot(bad)
+
+
+@pytest.mark.parametrize('outcome', ['recorded', 'duplicate', 'outside_schedule', 'rejected'])
+def test_shared_terminal_validator_binds_every_known_outcome_to_original_uuid(outcome):
+    from integration.protocol import validate_terminal_response
+    event_id = '85f42b66-6a77-4c56-9efc-4231ff6eab42'
+    response = {'status': True, 'data': {'event_id': event_id, 'outcome': outcome, 'reason': None,
+        'ad_id': None, 'work_date': None, 'session': None, 'received_at': '2026-10-14T07:25:00+08:00'}}
+    assert validate_terminal_response(event_id, response) is response
+    response['data']['event_id'] = '15f42b66-6a77-4c56-9efc-4231ff6eab42'
+    with pytest.raises(ValueError):
+        validate_terminal_response(event_id, response)
