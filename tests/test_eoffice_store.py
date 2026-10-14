@@ -341,3 +341,97 @@ def test_bad_event_input_cannot_enter_queue(store, body):
     with pytest.raises(ValueError):
         store.enqueue(body)
     assert store.pending() == []
+
+
+@pytest.mark.parametrize('reopen', [False, True])
+def test_unauthenticated_terminal_state_raises_instead_of_hiding_pending(tmp_path, reopen):
+    path = tmp_path / 'eoffice.sqlite3'
+    store = IntegrationStore(path, KEY)
+    store.enqueue(BODY)
+    assert store.pending()[0].body == BODY
+    if reopen:
+        store.close()
+    with sqlite3.connect(path) as db:
+        original = db.execute('SELECT body FROM events WHERE event_id=?', (EVENT_ID,)).fetchone()[0]
+        db.execute('UPDATE events SET response=? WHERE event_id=?',
+                   (b'not-authenticated-terminal-response', EVENT_ID))
+    if reopen:
+        store = IntegrationStore(path, KEY)
+    with pytest.raises(StoreIntegrityError):
+        store.pending()
+    with sqlite3.connect(path) as db:
+        assert db.execute('SELECT body FROM events WHERE event_id=?', (EVENT_ID,)).fetchone()[0] == original
+    store.close()
+
+
+@pytest.mark.parametrize('reopen', [False, True])
+def test_terminal_ciphertext_cannot_be_copied_to_another_event(tmp_path, reopen):
+    path = tmp_path / 'eoffice.sqlite3'
+    store = IntegrationStore(path, KEY)
+    other_id = 'a8812b33-4c8a-457e-9dda-379108ca2134'
+    other_body = json.dumps({'event_id': other_id}).encode()
+    store.enqueue(BODY)
+    store.enqueue(other_body)
+    store.finish(EVENT_ID, terminal())
+    assert [row.body for row in store.pending()] == [other_body]
+    if reopen:
+        store.close()
+    with sqlite3.connect(path) as db:
+        db.execute('UPDATE events SET response=(SELECT response FROM events WHERE event_id=?) WHERE event_id=?',
+                   (EVENT_ID, other_id))
+    if reopen:
+        store = IntegrationStore(path, KEY)
+    with pytest.raises(StoreIntegrityError):
+        store.pending()
+    store.close()
+
+
+@pytest.mark.parametrize('invalid', ['not-json', 'wrong-event-id', 'not-terminal'])
+def test_authenticated_response_still_requires_valid_uuid_bound_terminal_envelope(tmp_path, invalid):
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    path = tmp_path / 'eoffice.sqlite3'
+    store = IntegrationStore(path, KEY)
+    store.enqueue(BODY)
+    response = terminal()
+    if invalid == 'wrong-event-id':
+        response['data']['event_id'] = 'a8812b33-4c8a-457e-9dda-379108ca2134'
+    elif invalid == 'not-terminal':
+        response = {'status': False, 'message': 'Infrastructure failure'}
+    plaintext = b'not-json' if invalid == 'not-json' else json.dumps(response).encode()
+    nonce = bytes(range(12))
+    ciphertext = nonce + AESGCM(KEY).encrypt(nonce, plaintext, f'response:{EVENT_ID}'.encode())
+    with sqlite3.connect(path) as db:
+        db.execute('UPDATE events SET response=? WHERE event_id=?', (ciphertext, EVENT_ID))
+    store.close()
+    reopened = IntegrationStore(path, KEY)
+    with pytest.raises(StoreIntegrityError):
+        reopened.pending()
+    with pytest.raises(StoreIntegrityError):
+        reopened.finish(EVENT_ID, terminal())
+    reopened.close()
+
+
+def test_two_instances_preserve_first_terminal_response_and_original_bytes(tmp_path):
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    path = tmp_path / 'eoffice.sqlite3'
+    first, second = IntegrationStore(path, KEY), IntegrationStore(path, KEY)
+    first.enqueue(BODY)
+    response = terminal()
+    first.finish(EVENT_ID, response)
+    with sqlite3.connect(path) as db:
+        saved = db.execute('SELECT body,response FROM events WHERE event_id=?', (EVENT_ID,)).fetchone()
+    later = terminal('rejected')
+    later['data'].update(reason='enrollment_not_authorized', ad_id=None, work_date=None, session=None)
+    second.finish(EVENT_ID, later)
+    assert first.pending() == second.pending() == []
+    first.close()
+    second.close()
+    with sqlite3.connect(path) as db:
+        assert db.execute('SELECT body,response FROM events WHERE event_id=?', (EVENT_ID,)).fetchone() == saved
+    event_ciphertext, response_ciphertext = saved
+    assert AESGCM(KEY).decrypt(event_ciphertext[:12], event_ciphertext[12:], f'event:{EVENT_ID}'.encode()) == BODY
+    assert json.loads(AESGCM(KEY).decrypt(response_ciphertext[:12], response_ciphertext[12:],
+                                        f'response:{EVENT_ID}'.encode())) == response
+    reopened = IntegrationStore(path, KEY)
+    assert reopened.pending() == []
+    reopened.close()

@@ -3,6 +3,7 @@
 import json
 import secrets
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from os import PathLike
@@ -111,10 +112,22 @@ class IntegrationStore:
             self._db.execute('INSERT INTO events(event_id,body) VALUES (?,?)',
                              (event_id, self._encrypt(event_bytes, identity)))
 
+    def _validate_stored_response(self, event_id: str, response: bytes) -> None:
+        try:
+            decoded = json.loads(self._decrypt(response, f'response:{event_id}'))
+            validate_terminal_response(event_id, decoded)
+        except ValueError as exc:
+            raise StoreIntegrityError('Invalid integration terminal response') from exc
+
     def pending(self) -> list[PendingEvent]:
-        with self._lock:
-            rows = self._db.execute('SELECT event_id,body FROM events WHERE response IS NULL ORDER BY rowid').fetchall()
-            return [PendingEvent(event_id, self._decrypt(body, f'event:{event_id}')) for event_id, body in rows]
+        with self._lock, closing(self._db.execute('SELECT event_id,body,response FROM events ORDER BY rowid')) as rows:
+            pending = []
+            for event_id, body, response in rows:
+                if response is not None:
+                    self._validate_stored_response(event_id, response)
+                else:
+                    pending.append(PendingEvent(event_id, self._decrypt(body, f'event:{event_id}')))
+            return pending
 
     def replace_snapshot(self, snapshot: dict[str, JSONValue]) -> None:
         validate_snapshot(snapshot)
@@ -155,7 +168,7 @@ class IntegrationStore:
                 raise ValueError('Unknown integration event ID')
             self._decrypt(row[0], f'event:{event_id}')
             if row[1] is not None:
-                self._decrypt(row[1], f'response:{event_id}')
+                self._validate_stored_response(event_id, row[1])
                 return
             self._db.execute('UPDATE events SET response=? WHERE event_id=?',
                              (self._encrypt(body, f'response:{event_id}'), event_id))
