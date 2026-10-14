@@ -255,3 +255,12 @@ manifest yang konkret, tanpa mengganti validasi runtime.
 T6-I04 (golden Android/iOS serta kamera/cadar/walking), dan T6-I05 (instalasi/check/
 inferensi pada arsitektur kios Windows sebenarnya) adalah penghalang aktivasi resmi.
 Perbaikan kode, tes sintetis, dan resolusi wheel belum memenuhi gate tersebut.
+
+## Penerimaan operasional Task 10
+
+Lihat [matriks acceptance](qa/2026-10-14-eoffice-camera-acceptance.md) dan
+[prosedur operator](EOFFICE.md). HTTP/queue/SQL sintetis hanya membuktikan
+konsistensi, bukan kompatibilitas model, deteksi cadar, passive anti-foto atau
+keberhasilan berjalan. `face-check` tetap diagnostik SFace dan tidak memenuhi
+penerimaan integrasi. Semua peserta, termasuk template asal Android dan iOS,
+harus lulus tanpa berhenti/enrollment ulang. T6-I03–I05 tetap menghalangi aktivasi.

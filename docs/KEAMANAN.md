@@ -1,5 +1,7 @@
 # Keamanan dan daftar periksa sebelum dipakai resmi
 
+> **Integrasi e-office:** panduan standalone di bawah tidak menjadi prosedur enrollment/model/backup integrasi. Ikuti [EOFFICE.md](EOFFICE.md) untuk kunci dan antrean terpisah, migrasi server, recovery dan gate aktivasi. Enrollment ulang kios tidak diizinkan; penerimaan fisik masih NOTRUN.
+
 ## Pemeriksaan otomatis
 
 ```powershell

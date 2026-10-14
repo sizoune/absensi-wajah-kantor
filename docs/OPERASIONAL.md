@@ -1,5 +1,7 @@
 # Panduan operasional — untuk admin
 
+> **Integrasi e-office:** panduan standalone di bawah tidak menjadi prosedur enrollment/model/backup integrasi. Ikuti [EOFFICE.md](EOFFICE.md) untuk kunci dan antrean terpisah, migrasi server, recovery dan gate aktivasi. Enrollment ulang kios tidak diizinkan; penerimaan fisik masih NOTRUN.
+
 ## Rutinitas harian
 
 **Pagi (sebelum jam masuk)**

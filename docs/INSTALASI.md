@@ -1,5 +1,7 @@
 # Panduan instalasi — Sistem Absensi Wajah Diskominfo Tabalong
 
+> **Integrasi e-office:** panduan standalone di bawah tidak menjadi prosedur enrollment/model/backup integrasi. Ikuti [EOFFICE.md](EOFFICE.md) untuk kunci dan antrean terpisah, migrasi server, recovery dan gate aktivasi. Enrollment ulang kios tidak diizinkan; penerimaan fisik masih NOTRUN.
+
 Panduan memasang sistem di **komputer kios** (Windows 10/11) dari awal.
 Perkiraan waktu: 1–2 jam, belum termasuk pendaftaran wajah karyawan.
 
