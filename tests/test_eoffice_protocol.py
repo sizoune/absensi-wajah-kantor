@@ -208,3 +208,13 @@ def test_rejects_snapshot_over_16_mib(snapshot):
 def test_requires_json_object(value):
     with pytest.raises(ValueError):
         validate_snapshot(value)
+
+
+@pytest.mark.parametrize('index', [0, 1])
+def test_rejects_non_string_verification_types_without_coercion(snapshot, index):
+    verification_type = snapshot['employees'][index]['verification_type']
+    for value in [[verification_type], [[verification_type]], [], {}, True, False]:
+        bad = copy.deepcopy(snapshot)
+        bad['employees'][index]['verification_type'] = value
+        with pytest.raises(ValueError):
+            validate_snapshot(bad)
