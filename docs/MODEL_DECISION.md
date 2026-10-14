@@ -142,3 +142,102 @@ saat jumlah karyawan terdaftar bertambah banyak (PRD 13.2).
 antar-sampel sangat rendah (hingga 0,006), kemungkinan karena wajah operator
 ikut terambil tepat setelah Enter ditekan. Ditambahkan hitung mundur 3 detik
 (`--delay`) dan jeda antar-sampel 0,6 detik.
+
+---
+
+# Integrasi e-office: pipeline enrollment lokal (14 Oktober 2026)
+
+**Status: implementasi model tersedia; kompatibilitas enrollment dan kesiapan kios
+Windows belum diterima.** Modul ini belum dihubungkan ke dispatcher pengenalan.
+Keputusan SFace dan ambangnya di atas tetap berlaku untuk mode mandiri. Vektor
+SFace, AuraFace, dan periocular tidak boleh dibandingkan satu sama lain.
+
+| Versi embedding | Runtime | Dimensi | Asset operator | SHA-256 referensi |
+|---|---|---|---|---|
+| `auraface_512` | ONNX Runtime CPU 1.26.0 | 512 | `model_files/glintr100.onnx` | `a7933ea5330113b01c9b60351d8f4c33003f145d8470ac5f0e52ee2effe25c60` |
+| `mobilefacenet_v1_periocular` | LiteRT Interpreter 2.3.0 | 192 | `model_files/mobilefacenet.tflite` | `be4bc7cfc53f7bc336d0f28b1ab92535f618c913a422b683210750f6b5354854` |
+
+Referensi AuraFace berasal dari SHA-256 Git LFS
+[fal/AuraFace-v1, commit 94ee6ceb](https://huggingface.co/fal/AuraFace-v1/blob/94ee6ceb788a98a88807db884ae1f00d7e070d23/glintr100.onnx).
+Hash tersebut **belum dibandingkan dengan bobot server yang terpasang**. Hash
+MobileFaceNet sudah dihitung atas asset Android dan iOS dalam repositori dan
+keduanya sama; ini belum membuktikan hash aplikasi yang terpasang di perangkat.
+Operator memasang bobot asli secara terpisah; tidak ada konversi TFLite,
+pengunduhan otomatis, enrollment ulang, atau bobot baru dalam commit ini.
+
+`recognition/eoffice_models.py` menyediakan `AuraFaceEmbedder(model_path)` dan
+`PeriocularEmbedder(model_path)`. Keduanya menolak file hilang/hash salah sebelum
+memuat runtime, memeriksa bentuk/tipe tensor, lalu menjalankan inferensi sintetis
+saat startup. Keluaran nol, non-finite, bentuk salah, atau norm tidak valid
+menggagalkan startup; setiap inferensi berikutnya juga diperiksa. AuraFace boleh
+memiliki metadata batch simbolik/`None`, tetapi ukuran kanal/spasial/dimensi
+wajib cocok dan keluaran nyata wajib `[1,512]`. Tidak ada fallback model.
+
+`model_manifest(paths)` menerima mapping versi embedding ke path, lalu
+mengembalikan mapping versi ke `{version, sha256, dimension}`. Dispatcher Task 9
+wajib membandingkan hash manifest dengan `models[].weights_sha256` dari snapshot
+server terautentikasi sebelum pengenalan diaktifkan. Hash referensi upstream saja
+belum membuktikan kecocokan dengan deployment server. Ambang/margin harus berasal
+dari kebijakan yang dikalibrasi untuk model masing-masing; jangan memakai ambang
+SFace.
+
+Praproses AuraFace mengikuti `face-service/app/recognizer.py`: similarity transform
+ke lima landmark ArcFace, `cv2.warpAffine` 112×112 dengan border nol, BGR→RGB,
+normalisasi `(pixel-127.5)/127.5`, NCHW float32, dan L2 keluaran. Periocular menerima
+frame BGR uint8 yang sudah tegak serta koordinat mata dalam pixel frame yang sama.
+Crop memakai aritmetika float32 Android: jarak Euclidean minimal 10 pixel, padding
+atas 0.8, bawah 0.5, samping 0.3 dari jarak mata, `Math.round` (setengah ke +∞),
+lalu clamp batas gambar. `periocular_tensor(crop_bgr)` menghasilkan RGB NHWC
+float32 `[1,112,112,3]` dengan `(pixel-127.5)/128.0`.
+
+**Perbedaan iOS:** `PeriocularImagePreprocessor.swift` menggunakan CGRect
+fraksional/intersection, hanya menolak jarak nol, dan resize CoreGraphics;
+Android memakai integer `Math.round`, batas minimal 10 pixel, dan resize Bitmap.
+Kios mengikuti crop Android sesuai keputusan sementara. Resize OpenCV bilinear
+belum dibuktikan identik pixel demi pixel dengan Bitmap/CoreGraphics. Kesamaan
+hash dan konstanta normalisasi tidak membuktikan paritas crop iOS. Golden Android
+**dan** iOS serta uji berjalan dengan template asal iOS wajib masuk penerimaan
+sebelum aktivasi resmi; jangan mengatasinya dengan enrollment ulang atau mode
+runtime terpisah. Paritas dengan landmark tetap juga tidak membuktikan paritas
+landmark detektor kios/ML Kit maupun deteksi cadar.
+
+Instalasi integrasi terisolasi: `python -m pip install -r requirements-eoffice.txt`,
+lalu `python -m pip check`. Berkas ini menyertakan semua pin `requirements.txt`
+serta ONNX Runtime, LiteRT, dan scikit-image 0.25.2, dengan GUI OpenCV tetap dipakai.
+[LiteRT migration](https://developers.google.com/edge/litert/migration) mendokumentasikan
+`from ai_edge_litert.interpreter import Interpreter`.
+[PyPI LiteRT 2.3.0](https://pypi.org/project/ai-edge-litert/2.3.0/),
+[ONNX Runtime 1.26.0](https://pypi.org/project/onnxruntime/1.26.0/), dan
+[scikit-image 0.25.2](https://pypi.org/project/scikit-image/0.25.2/) menyediakan
+wheel Windows CPython 3.11 x64. Resolusi wheel seluruh dependensi Windows x64
+berhasil di macOS; instalasi, `pip check`, dan inferensi pada **kios Windows
+sebenarnya belum dijalankan**. Arsitektur mesin kios harus dikonfirmasi operator.
+
+Pengujian model terpisah dari kamera/transport:
+
+- `python -m pytest tests/test_eoffice_models.py -q`: tensor sintetis, rounding,
+  clamp, validasi input/hash/runtime, dan L2; tidak memakai data pegawai.
+- `python -m pytest tests/test_eoffice_model_parity.py -q -rs -s`: tes yang
+  membutuhkan asset akan melaporkan **NOT RUN** ketika input belum tersedia.
+  Skip tidak dihitung sebagai keberhasilan paritas.
+- `EOFFICE_MOBILEFACENET_PATH` dan `EOFFICE_AURAFACE_PATH` menunjuk bobot operator;
+  default adalah path pada tabel di atas. Path eksplisit yang salah menggagalkan
+  tes. `EOFFICE_SERVER_RECOGNIZER` menunjuk sumber recognizer server; default
+  `../api/face-service/app/recognizer.py` relatif root CAM.
+- `EOFFICE_CONSENTED_AURAFACE_NPZ` berisi `frame_bgr` uint8 dan `landmarks` 5×2
+  dari sampel non-produksi berizin dengan orientasi yang sudah dinormalisasi.
+- `EOFFICE_CONSENTED_ANDROID_GOLDEN_NPZ` dan `EOFFICE_CONSENTED_IOS_GOLDEN_NPZ`
+  masing-masing berisi `frame_bgr`, `eye_landmarks` 2×2, `tensor` float32
+  `[1,112,112,3]` hasil pipeline mobile, dan `embedding` float32 `[192]` hasil
+  mobile untuk frame/landmark yang sama. Operator mengekspor masing-masing dari
+  aplikasi asli; jangan memakai foto/template enrollment produksi.
+- Paritas embedding menuntut cosine ≥0.999 serta mencatat max absolute difference
+  melalui output dan properti pytest. Mobile diuji pada tensor tetap, kemudian
+  pipeline crop lengkap; tensor hasil crop juga harus persis sama. AuraFace
+  dibandingkan langsung dengan recognizer server. Sampel sintetis berwarna boleh
+  menguji runtime/transform, tetapi bukan pengganti penerimaan sampel berizin.
+
+Pada mesin pengembang ini, inferensi sintetis MobileFaceNet asli dan kesamaan
+tensor AuraFace dengan sumber server lulus. AuraFace nyata, golden Android/iOS,
+sampel berizin, deployment hash, kios Windows, kamera C270, dan uji berjalan/cadar
+belum divalidasi. Tidak ada klaim kesiapan resmi atau aktivasi produksi.

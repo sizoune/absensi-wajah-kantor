@@ -1,0 +1,4 @@
+-r requirements.txt
+onnxruntime==1.26.0
+ai-edge-litert==2.3.0
+scikit-image==0.25.2
