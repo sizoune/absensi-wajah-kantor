@@ -187,6 +187,11 @@ def recognize_eoffice_frame(frame: Image, detector: Detector, models: EofficeMod
     for version, gate in tracker.gates.items():
         present = {t.id: t for t in tracks if t.id in current and current[t.id][0] == version}
         gate.rejected_tracks.intersection_update(present)
+        # E-office deadlines are strict; the standalone gate can accept a late LIVE verdict.
+        for track_id, pending in list(gate.pending.items()):
+            if now >= pending.since + gate.s.decide_seconds:
+                del gate.pending[track_id]
+                gate.rejected_tracks.add(track_id)
         result = gate.update(present, [e for e in confirmations if e.track_id in present], now)
         for event in result.accepted:
             track = present[event.track_id]

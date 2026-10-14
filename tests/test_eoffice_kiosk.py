@@ -387,3 +387,21 @@ def test_idle_history_scan_waits_for_snapshot_or_capture_wake(tmp_path):
     sync._run()
     assert delays == [60., 60.]
     assert len(scans) == 2 and sync.status.recorded_count == 1
+
+
+@pytest.mark.parametrize('final_time', [.625, .75])
+def test_expired_first_live_sample_never_reaches_queue(kiosk, final_time):
+    from recognition.eoffice_identify import EofficeGallery
+    worker, now, scene = kiosk
+    snapshot = copy.deepcopy(scene[0])
+    snapshot['snapshot_id'] = snapshot['clock_anchor_id'] = str(uuid4())
+    snapshot['models']['auraface_512']['liveness'].update(min_samples=6, decide_seconds=.375)
+    worker.integration_store.replace_snapshot(snapshot)
+    worker.gallery = EofficeGallery(snapshot, worker.eoffice_models)
+    worker.trusted_clock.anchor(snapshot['issued_at'], snapshot['clock_anchor_id'], 0.)
+    for capture_time in (0., .125, .25, .375, .5, final_time):
+        now[0] = capture_time
+        worker.run_once()
+    assert worker.integration_store.pending() == []
+    assert worker.message['status'] == 'uncertain'
+    assert worker.recorded == 0

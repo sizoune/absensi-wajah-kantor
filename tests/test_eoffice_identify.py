@@ -238,3 +238,43 @@ def test_minimum_live_samples_are_specific_to_selected_model():
     assert frames(eye, 3)[1] == []
     event, = frames(eye, 2, 3)[1]
     assert event.samples == 5 and event.capture_monotonic == .4
+
+
+@pytest.mark.parametrize('kind', [FACE, EYE])
+@pytest.mark.parametrize('final_time,accepted', [(.6, True), (.625, False), (.75, False)])
+def test_first_sufficient_live_sample_must_precede_selected_deadline(kind, final_time, accepted):
+    from recognition.eoffice_identify import EofficeGallery, recognize_eoffice_frame
+    scene = list(setup_scene(kind))
+    scene[0]['models'][kind]['liveness'].update(min_samples=6, decide_seconds=.375)
+    scene[2] = EofficeGallery(scene[0], scene[1])
+    _, models, gallery, tracker, detector, frame = scene
+    for now in (0., .125, .25, .375, .5):
+        assert recognize_eoffice_frame(frame, detector, models, gallery, QualitySettings(), tracker, now)[1] == []
+    # Confirmation at .25 gives an exact .625 deadline; sixth sample is first sufficient LIVE.
+    tracks, events = recognize_eoffice_frame(frame, detector, models, gallery, QualitySettings(), tracker, final_time)
+    assert bool(events) is accepted
+    gate = tracker.gates[kind]
+    assert not gate.pending
+    if accepted:
+        assert events[0].samples == 6 and events[0].capture_monotonic == final_time
+    else:
+        assert tracks[0].id in gate.rejected_tracks
+        assert recognize_eoffice_frame(frame, detector, models, gallery, QualitySettings(), tracker, final_time + .125)[1] == []
+
+
+@pytest.mark.parametrize('kind', [FACE, EYE])
+def test_liveness_deadlines_are_independent_between_models(kind):
+    from recognition.eoffice_identify import EofficeGallery, recognize_eoffice_frame
+    other = EYE if kind == FACE else FACE
+    outcomes = []
+    for selected_seconds, other_seconds in ((.25, .5), (.5, .25)):
+        scene = list(setup_scene(kind))
+        scene[0]['models'][kind]['liveness'].update(min_samples=6, decide_seconds=selected_seconds)
+        scene[0]['models'][other]['liveness']['decide_seconds'] = other_seconds
+        scene[2] = EofficeGallery(scene[0], scene[1])
+        _, models, gallery, tracker, detector, frame = scene
+        events = []
+        for now in (0., .125, .25, .375, .4375, .625):
+            events.extend(recognize_eoffice_frame(frame, detector, models, gallery, QualitySettings(), tracker, now)[1])
+        outcomes.append(bool(events))
+    assert outcomes == [False, True]
