@@ -44,7 +44,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 import models  # noqa: F401  (mendaftarkan model untuk Flask-Migrate)
-from config import BASE_DIR, get_config
+from config import BASE_DIR, get_config, validate_attendance_config
 from extensions import csrf, db, login_manager, migrate
 from models import User, office_now
 from routes.auth import bp as auth_bp
@@ -426,6 +426,8 @@ def create_app(config_name=None, overrides=None):
     app.config.from_object(get_config(config_name))
     if overrides:
         app.config.update(overrides)
+
+    validate_attendance_config(app.config)
 
     if not app.config.get("SECRET_KEY"):
         raise RuntimeError(

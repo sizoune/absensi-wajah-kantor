@@ -105,3 +105,41 @@ def validate_snapshot(value):
     encoded = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode('utf-8')
     _require(len(encoded) <= MAX_SNAPSHOT_BYTES, 'snapshot exceeds 16 MiB')
     return value
+
+
+JSONValue = None | bool | int | float | str | list['JSONValue'] | dict[str, 'JSONValue']
+
+
+def validate_terminal_response(event_id: str, response: dict[str, JSONValue]) -> dict[str, JSONValue]:
+    """Validate server outcomes or locally bound terminal HTTP 400/409 errors."""
+    if not _uuid(event_id) or type(response) is not dict:
+        raise ValueError('Invalid terminal e-office response')
+    if set(response) == {'status_code', 'event_id', 'body'}:
+        body = response['body']
+        if (type(response['status_code']) is not int or response['status_code'] not in (400, 409)
+                or response['event_id'] != event_id or type(body) is not dict
+                or set(body) not in ({'status', 'message'}, {'status', 'message', 'event_id'})
+                or body.get('status') is not False or type(body.get('message')) is not str
+                or not body['message'].strip() or body.get('event_id', event_id) != event_id):
+            raise ValueError('Invalid terminal e-office HTTP error')
+        return response
+    if set(response) != {'status', 'data'} or response['status'] is not True:
+        raise ValueError('Invalid terminal e-office response envelope')
+    data = response['data']
+    if (type(data) is not dict
+            or set(data) != {'event_id', 'outcome', 'reason', 'ad_id', 'work_date', 'session', 'received_at'}
+            or data['event_id'] != event_id or type(data['outcome']) is not str
+            or data['outcome'] not in ('recorded', 'duplicate', 'outside_schedule', 'rejected')
+            or not (data['reason'] is None or type(data['reason']) is str and bool(data['reason'].strip()))
+            or not (data['ad_id'] is None or _integer(data['ad_id']))
+            or data['session'] not in ('check_in', 'check_out', None)
+            or not _wita(data['received_at'])):
+        raise ValueError('Invalid terminal e-office response data')
+    if data['work_date'] is not None:
+        if type(data['work_date']) is not str or not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', data['work_date']):
+            raise ValueError('Invalid terminal e-office work date')
+        try:
+            datetime.strptime(data['work_date'], '%Y-%m-%d')
+        except ValueError as exc:
+            raise ValueError('Invalid terminal e-office work date') from exc
+    return response

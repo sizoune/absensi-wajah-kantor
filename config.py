@@ -5,7 +5,9 @@ Semua nilai rahasia (SECRET_KEY, password database) dibaca dari file .env,
 tidak pernah ditulis langsung di kode sumber.
 """
 import os
+from collections.abc import Mapping
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 from sqlalchemy.engine import URL
@@ -36,7 +38,47 @@ def _build_database_uri():
     return url.render_as_string(hide_password=False)
 
 
+def validate_attendance_config(config: Mapping[str, object]) -> None:
+    mode = config.get('ATTENDANCE_MODE', 'standalone')
+    if mode not in ('standalone', 'eoffice'):
+        raise ValueError('ATTENDANCE_MODE must be standalone or eoffice')
+    if mode == 'standalone':
+        return
+    base_url = config.get('EOFFICE_BASE_URL')
+    try:
+        if type(base_url) is not str or not base_url or any(c.isspace() for c in base_url):
+            raise ValueError
+        url = urlsplit(base_url)
+        if (url.scheme != 'https' or not url.hostname or url.username is not None
+                or url.password is not None or url.query or url.fragment):
+            raise ValueError
+        url.port  # Reject malformed port numbers before transport starts.
+    except ValueError as exc:
+        raise ValueError('EOFFICE_BASE_URL requires an HTTPS server URL without credentials, query or fragment') from exc
+    token = config.get('EOFFICE_DEVICE_TOKEN')
+    if type(token) is not str or not token or any(c.isspace() for c in token):
+        raise ValueError('EOFFICE_DEVICE_TOKEN requires a provisioned device token')
+    for field in ('EOFFICE_AURAFACE_PATH', 'EOFFICE_PERIOCULAR_PATH', 'EOFFICE_KEY_FILE'):
+        path = config.get(field)
+        if type(path) is not str or not path or not Path(path).is_file():
+            raise ValueError(f'{field} requires an existing local file')
+    if config.get('LIVENESS_MODE') != 'passive':
+        raise ValueError('LIVENESS_MODE must be passive in eoffice mode')
+    from services.biometric_service import BiometricKeyError, load_keyring
+    try:
+        load_keyring(config['EOFFICE_KEY_FILE'])
+    except BiometricKeyError as exc:
+        raise ValueError('EOFFICE_KEY_FILE is not a valid encryption key file') from exc
+
+
 class Config:
+    ATTENDANCE_MODE = os.getenv('ATTENDANCE_MODE', 'standalone')
+    EOFFICE_BASE_URL = os.getenv('EOFFICE_BASE_URL', '')
+    EOFFICE_DEVICE_TOKEN = os.getenv('EOFFICE_DEVICE_TOKEN', '')
+    EOFFICE_AURAFACE_PATH = os.getenv('EOFFICE_AURAFACE_PATH', '')
+    EOFFICE_PERIOCULAR_PATH = os.getenv('EOFFICE_PERIOCULAR_PATH', '')
+    EOFFICE_KEY_FILE = os.getenv('EOFFICE_KEY_FILE', '')
+
     SECRET_KEY = os.getenv("SECRET_KEY")
 
     SQLALCHEMY_DATABASE_URI = _build_database_uri()
