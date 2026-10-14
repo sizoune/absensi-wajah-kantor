@@ -118,6 +118,8 @@ def test_manifest_reports_verified_version_hash_and_dimension(model_paths):
 
 
 class FakeOnnx:
+    input_dtype = 'tensor(float)'
+    output_dtype = 'tensor(float)'
     input_shape = [1, 3, 112, 112]
     output_shape = [1, 512]
     output = np.full((1, 512), 2, dtype=np.float32)
@@ -126,10 +128,10 @@ class FakeOnnx:
         assert providers == ['CPUExecutionProvider']
 
     def get_inputs(self):
-        return [SimpleNamespace(name='input', shape=self.input_shape, type='tensor(float)')]
+        return [SimpleNamespace(name='input', shape=self.input_shape, type=self.input_dtype)]
 
     def get_outputs(self):
-        return [SimpleNamespace(name='output', shape=self.output_shape, type='tensor(float)')]
+        return [SimpleNamespace(name='output', shape=self.output_shape, type=self.output_dtype)]
 
     def run(self, names, inputs):
         assert names == ['output']
@@ -138,6 +140,8 @@ class FakeOnnx:
 
 
 class FakeLiteRT:
+    input_dtype = np.float32
+    output_dtype = np.float32
     input_shape = [1, 112, 112, 3]
     output_shape = [1, 192]
     output = np.full((1, 192), 2, dtype=np.float32)
@@ -149,10 +153,10 @@ class FakeLiteRT:
         pass
 
     def get_input_details(self):
-        return [{'shape': np.array(self.input_shape), 'dtype': np.float32, 'index': 0}]
+        return [{'shape': np.array(self.input_shape), 'dtype': self.input_dtype, 'index': 0}]
 
     def get_output_details(self):
-        return [{'shape': np.array(self.output_shape), 'dtype': np.float32, 'index': 1}]
+        return [{'shape': np.array(self.output_shape), 'dtype': self.output_dtype, 'index': 1}]
 
     def set_tensor(self, index, tensor):
         assert index == 0
@@ -187,12 +191,14 @@ def test_model_outputs_are_float32_unit_vectors(runtime, frame):
     assert result[0] == pytest.approx(1 / np.sqrt(dimension), abs=1e-7)
 
 
-@pytest.mark.parametrize('bad', ['zero', 'nan', 'inf', 'shape', 'overflow'])
+@pytest.mark.parametrize('bad', ['zero', 'nan', 'inf', 'shape', 'overflow', 'float64'])
 def test_bad_model_outputs_fail_at_startup(runtime, monkeypatch, bad):
     constructor, fake, dimension, path = runtime
-    raw = np.full((1, dimension), {'zero': 0, 'nan': np.nan, 'inf': np.inf, 'shape': 1, 'overflow': np.finfo(np.float32).max}[bad], dtype=np.float32)
+    raw = np.full((1, dimension), {'zero': 0, 'nan': np.nan, 'inf': np.inf, 'shape': 1, 'overflow': np.finfo(np.float32).max, 'float64': 1}[bad], dtype=np.float32)
     if bad == 'shape':
         raw = raw.reshape(dimension, 1)
+    if bad == 'float64':
+        raw = raw.astype(np.float64)
     monkeypatch.setattr(fake, 'output', raw)
     with pytest.raises(ValueError):
         constructor(path)
@@ -230,3 +236,11 @@ def test_auraface_rejects_wrong_dimensions_with_dynamic_metadata(model_paths, mo
     monkeypatch.setattr(FakeOnnx, 'output_shape', shape)
     with pytest.raises(ValueError):
         models.AuraFaceEmbedder(model_paths[0])
+
+
+@pytest.mark.parametrize('side', ['input_dtype', 'output_dtype'])
+def test_wrong_model_dtype_metadata_fails_at_startup(runtime, monkeypatch, side):
+    constructor, fake, dimension, path = runtime
+    monkeypatch.setattr(fake, side, 'tensor(double)' if dimension == 512 else np.float64)
+    with pytest.raises(ValueError):
+        constructor(path)

@@ -241,3 +241,17 @@ Pada mesin pengembang ini, inferensi sintetis MobileFaceNet asli dan kesamaan
 tensor AuraFace dengan sumber server lulus. AuraFace nyata, golden Android/iOS,
 sampel berizin, deployment hash, kios Windows, kamera C270, dan uji berjalan/cadar
 belum divalidasi. Tidak ada klaim kesiapan resmi atau aktivasi produksi.
+
+Perbaikan tinjauan Task 6: referensi server selalu menambahkan nama
+`glintr100.onnx`. Tes paritas kini menyalin asset operator yang dipilih ke direktori
+sementara dengan nama tersebut, memverifikasi kembali manifest/hash yang sama,
+lalu memuat referensi dari sana. Path operator bernama lain tidak akan dibandingkan
+dengan file tetangga yang berbeda. Salinan sementara hanya digunakan saat tes,
+dibersihkan sesudahnya, dan tidak masuk Git; sediakan ruang disk sementara sebesar
+asset. Kontrak Python publik kini memakai tipe path/mapping/array dan metadata
+manifest yang konkret, tanpa mengganti validasi runtime.
+
+**Gate penerimaan Task 10 tetap terbuka:** T6-I03 (bobot deployment/paritas nyata),
+T6-I04 (golden Android/iOS serta kamera/cadar/walking), dan T6-I05 (instalasi/check/
+inferensi pada arsitektur kios Windows sebenarnya) adalah penghalang aktivasi resmi.
+Perbaikan kode, tes sintetis, dan resolusi wheel belum memenuhi gate tersebut.

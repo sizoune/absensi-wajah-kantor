@@ -1,6 +1,8 @@
 """Operator-supplied assets only; skipped parity is NOT a passing compatibility gate."""
 import importlib.util
 import os
+import shutil
+from tempfile import TemporaryDirectory
 from pathlib import Path
 
 import numpy as np
@@ -8,7 +10,7 @@ import pytest
 
 from recognition.eoffice_models import (
     ARCFACE_DST, AuraFaceEmbedder, PeriocularEmbedder,
-    _align_auraface, _auraface_tensor, _eye_crop, periocular_tensor,
+    _align_auraface, _auraface_tensor, _eye_crop, model_manifest, periocular_tensor,
 )
 
 
@@ -32,6 +34,15 @@ def _server_recognizer():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _server_embedding(path, frame, landmarks):
+    selected = model_manifest({'auraface_512': path})
+    with TemporaryDirectory(prefix='eoffice-auraface-parity-') as directory:
+        staged = Path(directory) / 'glintr100.onnx'
+        shutil.copyfile(path, staged)
+        assert model_manifest({'auraface_512': staged}) == selected
+        return _server_recognizer().Recognizer(directory).embed(frame, landmarks)['embedding']
 
 
 def _synthetic_frame():
@@ -77,7 +88,7 @@ def test_real_auraface_matches_server_on_synthetic_image(record_property):
     path = _operator_path('EOFFICE_AURAFACE_PATH', ROOT / 'model_files/glintr100.onnx')
     frame, landmarks = _synthetic_frame(), ARCFACE_DST + np.float32(7)
     actual = AuraFaceEmbedder(path).embed(frame, landmarks)
-    expected = _server_recognizer().Recognizer(str(path.parent)).embed(frame, landmarks)['embedding']
+    expected = _server_embedding(path, frame, landmarks)
     _compare(actual, expected, 'auraface_synthetic', record_property)
 
 
@@ -87,7 +98,7 @@ def test_consented_auraface_matches_server(record_property):
     with np.load(sample, allow_pickle=False) as data:
         frame, landmarks = data['frame_bgr'], data['landmarks']
         actual = AuraFaceEmbedder(path).embed(frame, landmarks)
-        expected = _server_recognizer().Recognizer(str(path.parent)).embed(frame, landmarks)['embedding']
+        expected = _server_embedding(path, frame, landmarks)
     _compare(actual, expected, 'auraface_consented', record_property)
 
 
@@ -119,3 +130,40 @@ def test_periocular_matches_consented_mobile_golden(platform, record_property):
         record_property(f'{platform}_tensor_max_absolute_difference', max_difference)
         print(f'{platform} tensor max_absolute_difference={max_difference:.9g}')
         np.testing.assert_array_equal(tensor, expected_tensor)
+
+
+@pytest.mark.parametrize('canonical_neighbor', [False, True])
+def test_auraface_reference_uses_selected_noncanonical_asset(tmp_path, monkeypatch, record_property, canonical_neighbor):
+    from types import SimpleNamespace
+    from recognition import eoffice_models as models
+
+    selected = tmp_path / 'selected.onnx'
+    selected.write_bytes(b'synthetic runtime boundary only')
+    monkeypatch.setitem(models.MODEL_HASHES, 'auraface_512', '6d54ef7d215a3505f4ef3324f237fc9ef05f5587959b9f8d796188f743c74aef')
+    if canonical_neighbor:
+        (tmp_path / 'glintr100.onnx').write_bytes(b'different reference weights')
+    monkeypatch.setenv('EOFFICE_AURAFACE_PATH', str(selected))
+    expected = np.zeros(512, dtype=np.float32)
+    expected[0] = 1
+
+    class SelectedEmbedder:
+        def __init__(self, path):
+            models.model_manifest({'auraface_512': path})
+
+        def embed(self, frame, landmarks):
+            return expected.copy()
+
+    class ServerRecognizer:
+        def __init__(self, model_dir):
+            # Reproduce the authoritative server's filename resolution.
+            self.bytes = (Path(model_dir) / 'glintr100.onnx').read_bytes()
+
+        def embed(self, frame, landmarks):
+            result = np.zeros(512, dtype=np.float32)
+            result[0 if self.bytes == b'synthetic runtime boundary only' else 1] = 1
+            return {'embedding': result}
+
+    monkeypatch.setitem(globals(), 'AuraFaceEmbedder', SelectedEmbedder)
+    monkeypatch.setitem(globals(), '_server_recognizer', lambda: SimpleNamespace(Recognizer=ServerRecognizer))
+    print('asset-selection regression with runtime doubles; not real model parity')
+    test_real_auraface_matches_server_on_synthetic_image(record_property)

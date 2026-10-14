@@ -1,8 +1,12 @@
 """Enrollment-compatible tensors and local inference; never mix model versions."""
+from collections.abc import Mapping, Sequence
+from os import PathLike
 from pathlib import Path
+from typing import TypedDict
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 import onnxruntime as ort
 from ai_edge_litert.interpreter import Interpreter
 from skimage import transform as sk_transform
@@ -17,13 +21,20 @@ MODEL_HASHES = {
     'mobilefacenet_v1_periocular': 'be4bc7cfc53f7bc336d0f28b1ab92535f618c913a422b683210750f6b5354854',
 }
 DIMENSIONS = {'auraface_512': 512, 'mobilefacenet_v1_periocular': 192}
+Landmarks = NDArray[np.float32] | NDArray[np.float64] | Sequence[Sequence[float]]
 
 
-def model_manifest(paths):
+class ModelMetadata(TypedDict):
+    version: str
+    sha256: str
+    dimension: int
+
+
+def model_manifest(paths: Mapping[str, str | PathLike[str]]) -> dict[str, ModelMetadata]:
     """Map embedding versions to verified asset metadata for snapshot comparison."""
     if not paths or not set(paths).issubset(MODEL_HASHES):
         raise ValueError('Expected paths keyed by supported embedding versions')
-    manifest = {}
+    manifest: dict[str, ModelMetadata] = {}
     for version, path in paths.items():
         path = Path(path)
         if not path.is_file():
@@ -87,7 +98,7 @@ def _eye_crop(frame, eye_landmarks):
     return frame[top:bottom, left:right]
 
 
-def periocular_tensor(crop_bgr):
+def periocular_tensor(crop_bgr: NDArray[np.uint8]) -> NDArray[np.float32]:
     """MobileFaceNet RGB NHWC float32 with (pixel - 127.5) / 128."""
     # shortcut: OpenCV bilinear parity is unverified, replace if mobile goldens differ.
     resized = cv2.resize(_image(crop_bgr), (112, 112), interpolation=cv2.INTER_LINEAR)
@@ -109,7 +120,7 @@ def _unit_embedding(output, dimension):
 class AuraFaceEmbedder:
     version = 'auraface_512'
 
-    def __init__(self, model_path):
+    def __init__(self, model_path: str | PathLike[str]) -> None:
         self.manifest = model_manifest({self.version: model_path})[self.version]
         options = ort.SessionOptions()
         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
@@ -126,7 +137,7 @@ class AuraFaceEmbedder:
         self.input_name, self.output_name = inputs[0].name, outputs[0].name
         self.embed(np.zeros((112, 112, 3), dtype=np.uint8), ARCFACE_DST)
 
-    def embed(self, frame, landmarks):
+    def embed(self, frame: NDArray[np.uint8], landmarks: Landmarks) -> NDArray[np.float32]:
         blob = _auraface_tensor(_align_auraface(frame, landmarks))
         output = self.session.run([self.output_name], {self.input_name: blob})[0]
         return _unit_embedding(output, 512)
@@ -135,7 +146,7 @@ class AuraFaceEmbedder:
 class PeriocularEmbedder:
     version = 'mobilefacenet_v1_periocular'
 
-    def __init__(self, model_path):
+    def __init__(self, model_path: str | PathLike[str]) -> None:
         self.manifest = model_manifest({self.version: model_path})[self.version]
         self.interpreter = Interpreter(model_path=str(model_path), num_threads=2)
         self.interpreter.allocate_tensors()
@@ -147,7 +158,7 @@ class PeriocularEmbedder:
         self.input_index, self.output_index = inputs[0]['index'], outputs[0]['index']
         self.embed(np.zeros((112, 112, 3), dtype=np.uint8), [[30, 40], [70, 40]])
 
-    def embed(self, frame, eye_landmarks):
+    def embed(self, frame: NDArray[np.uint8], eye_landmarks: Landmarks) -> NDArray[np.float32]:
         tensor = periocular_tensor(_eye_crop(frame, eye_landmarks))
         self.interpreter.set_tensor(self.input_index, tensor)
         self.interpreter.invoke()
