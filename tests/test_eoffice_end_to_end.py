@@ -6,6 +6,7 @@ this suite does not certify deployed TLS, biometric inference or physical livene
 """
 from __future__ import annotations
 
+from contextlib import suppress
 import json
 import os
 from pathlib import Path
@@ -49,13 +50,10 @@ class LiveAPI:
         self.reader.start()
         try:
             ready = self._read()
+            self.base, self.secret = ready['base'], ready['secret']
         except BaseException:
-            self.process.kill()
-            self.process.wait()
-            self.process.stdin.close()
-            self.process.stdout.close()
+            self._cleanup()
             raise
-        self.base, self.secret = ready['base'], ready['secret']
         self.offline = False
         self.lose_reply = False
         self.sent: list[bytes] = []
@@ -91,18 +89,26 @@ class LiveAPI:
                 raise TimeoutError('Synthetic lost response after server commit')
         return response
 
-    def close(self) -> None:
-        if self.process.poll() is None:
-            self.command('close')
-            self.process.stdin.close()
+    def _cleanup(self) -> None:
         try:
+            if self.process.poll() is None:
+                with suppress(ProcessLookupError):
+                    self.process.kill()
+            self.process.wait()
+        finally:
+            self.reader.join(timeout=2)
+            for pipe in (self.process.stdin, self.process.stdout):
+                with suppress(OSError):
+                    pipe.close()
+
+    def close(self) -> None:
+        try:
+            if self.process.poll() is None:
+                self.command('close')
+                self.process.stdin.close()
             assert self.process.wait(timeout=10) == 0
         finally:
-            if self.process.poll() is None:
-                self.process.kill()
-                self.process.wait()
-            self.reader.join(timeout=2)
-            self.process.stdout.close()
+            self._cleanup()
 
 
 @pytest.fixture

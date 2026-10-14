@@ -105,3 +105,20 @@ Kolom “—” berarti belum diukur, bukan nol error. Penerimaan menuntut semua
 | Timing queue di Windows | NOTRUN: host hanya menunjukkan pending O(total history) 32,8 ms/5.000 row, indexed terminal 0,014 ms; idle 60 detik+wake |
 
 Penanggung jawab lapangan: BELUM DIISI. Tanggal trial: BELUM DIISI. Lampiran pengukuran: BELUM DIISI. Persetujuan aktivasi: **belum ada**. [Prosedur operasi/restore/rollback](../EOFFICE.md) wajib diverifikasi sebelum persetujuan tersebut.
+
+## Perbaikan review T10-PY-I01
+
+Fixture subprocess kini selalu menjalankan cleanup saat handshake shutdown gagal
+atau readiness startup kehilangan field. Delapan regresi fault injection tanpa DB
+awalnya **8 fail** (cleanup tidak terpanggil/lengkap), lalu **8 pass** sesudah fix.
+Gabungan delapan regresi dan sepuluh journey HTTP/SQL: **18 pass, 0 fail, 0 skip,
+tanpa warning**, 16,76 detik. Tidak ada perubahan produksi atau API. Full-suite
+historis di atas tidak diulang untuk perubahan fixture ini; seluruh NOTRUN tetap.
+
+```bash
+.venv/bin/python -m pytest tests/test_eoffice_fixture.py -q --tb=short
+KIOSK_TEST_DATABASE_URL=mysql://root:kiosk-test-only@127.0.0.1:33317/kiosk_test_camera .venv/bin/python -m pytest tests/test_eoffice_fixture.py tests/test_eoffice_end_to_end.py -q --tb=short -o junit_family=legacy --junitxml=.superpowers/sdd/2026-10-14-eoffice-camera-attendance/task-10-logs/fix1-focused.xml
+```
+
+Log aktual dalam direktori workspace yang sama: `fix1-red.log`,
+`fix1-unit-green.log`, `fix1-focused.log`, dan `fix1-focused.xml`.
