@@ -53,7 +53,8 @@ from routes.attendance import bp as attendance_bp
 from routes.reports import bp as reports_bp
 from routes.api import bp as api_bp, register_api_error_handlers
 from routes.setup import bp as setup_bp
-from routes import setup_models  # noqa: F401 (register protected model preparation routes)
+import routes.setup_organization  # Register organization steps on the setup blueprint.
+import routes.setup_models  # Register protected model preparation routes.
 from maintenance.api_cli import register_api_commands
 from kiosk.cli import register_kiosk_commands
 from perf.cli import register_perf_commands

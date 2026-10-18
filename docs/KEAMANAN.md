@@ -51,5 +51,28 @@ sebelum dipakai resmi; perintah keluar dengan kode 1 selama masih ada.
 | `.env` terkirim/terlihat orang lain | Ganti `SECRET_KEY` (semua admin otomatis keluar) dan password database; jalankan `security-check`. |
 | File kunci biometrik bocor | `backup-create`, `biometric-rotate-key`, `backup-key` ke media baru, `backup-create`. |
 | Komputer kios hilang/dicuri | Pulihkan di komputer lain (docs/BACKUP.md), ganti semua password dan `SECRET_KEY`, rotasi kunci biometrik setelah pemulihan. Laporkan sesuai prosedur instansi. |
-| Admin lupa password | Admin lain membuat akun baru dengan `flask --app app create-admin` di komputer kios. |
+| Admin lupa password | Pengelola dengan akses terminal lokal menjalankan `reset-admin-password`; lihat langkah di bawah. |
 | Absensi atas nama orang lain (salah kenal/kecurangan) | Batalkan lewat menu Koreksi dengan alasan; periksa audit log dan `face-similarity-report`. |
+
+## Pemulihan password admin
+
+Pada Windows, buka terminal pada folder aplikasi dan aktifkan virtualenv yang
+sama dengan aplikasi. Gunakan konfigurasi instalasi yang sedang dipakai:
+
+```powershell
+flask --app app reset-admin-password
+```
+
+Pada host Docker, jalankan terhadap layanan dan volume instalasi yang sama:
+
+```sh
+docker compose exec camera flask --app 'docker/start.py:create_container_app()' reset-admin-password
+```
+
+Masukkan username admin aktif, lalu password baru minimal 10 karakter dua kali.
+Input password disembunyikan dan tidak tersedia sebagai opsi `--password`.
+Akun yang tidak ditemukan, bukan admin, atau nonaktif ditolak; perintah ini tidak
+mengaktifkan akun. Login berikutnya memakai password baru dan menolak password
+lama. Pemulihan tercatat tanpa password pada audit log, mempertahankan
+konfigurasi, kunci, snapshot, riwayat, serta byte/UUID antrean. Setup yang sudah
+selesai tetap tertutup; tidak ada endpoint pemulihan tanpa login.

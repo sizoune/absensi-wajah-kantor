@@ -1,0 +1,42 @@
+<section aria-labelledby="organization-title">
+  <h2 id="organization-title">SKPD dan cakupan perangkat</h2>
+  <form method="post" action="{{ url_for('setup.credentials') }}" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="device-token">Token perangkat dari admin server</label>
+    <input id="device-token" name="token" type="password" required autocomplete="off">
+    <details>
+      <summary>Opsi lanjutan</summary>
+      <label for="base-url">URL API eOffice (HTTPS)</label>
+      <input id="base-url" name="base_url" type="url" required value="{{ organization_setup.base_url }}">
+    </details>
+    <button type="submit" class="btn">Periksa token dan organisasi</button>
+  </form>
+  {% if organization_setup.organizations %}
+  <form method="post" action="{{ url_for('setup.organization_select') }}" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="skpd-id">SKPD yang diizinkan server</label>
+    <select id="skpd-id" name="skpd_id" required>
+      {% for organization in organization_setup.organizations %}
+      <option value="{{ organization.skpd_id }}">{{ organization.name }}</option>
+      {% endfor %}
+    </select>
+    <label for="scope-type">Cakupan perangkat</label>
+    <select id="scope-type" name="scope_type"><option value="all_skpd">Seluruh SKPD (termasuk semua subunit)</option></select>
+    <button type="submit" class="btn">Simpan cakupan dan ambil enrollment</button>
+  </form>
+  {% endif %}
+  {% if status.steps.organization %}
+  <p>{{ organization_setup.name }} — Seluruh SKPD.</p>
+  {% if organization_setup.snapshot.empty %}
+  <p role="status">Snapshot enrollment valid masih kosong. Konfigurasi tersimpan; perangkat belum siap mengenali wajah.</p>
+  {% elif organization_setup.snapshot.available %}
+  <p role="status">{{ organization_setup.snapshot.enrollment_count }} enrollment tersimpan dengan enkripsi.</p>
+  {% else %}
+  <p role="status">Snapshot enrollment belum tersedia. Coba lagi setelah koneksi atau izin perangkat dipulihkan.</p>
+  {% endif %}
+  <form method="post" action="{{ url_for('setup.snapshot_retry') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-secondary">Coba ambil enrollment lagi</button>
+  </form>
+  {% endif %}
+</section>
