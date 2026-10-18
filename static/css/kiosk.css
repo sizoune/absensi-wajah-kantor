@@ -98,6 +98,28 @@ body {
 .dot-wait { background: #d99a00; }
 .dot-off { background: var(--error); }
 
+.kiosk-browser { grid-template-rows: auto auto auto auto auto auto; }
+.kiosk-browser [hidden] { display: none; }
+.browser-camera { padding: 1.5rem; background: #fff; border-radius: 14px; }
+.browser-camera h2 { margin: 0; font-size: clamp(1.2rem, 2vw, 1.7rem); }
+.browser-camera p { color: var(--muted); line-height: 1.5; }
+.browser-camera-controls { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.browser-camera button {
+  font: inherit;
+  font-weight: 600;
+  min-height: 48px;
+  padding: 0.75rem 1.25rem;
+  border: 2px solid var(--brand);
+  border-radius: 6px;
+  background: var(--brand);
+  color: #fff;
+  cursor: pointer;
+}
+.browser-camera button:last-child { background: #fff; color: var(--brand); }
+.browser-camera button:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+.browser-camera button:disabled { opacity: 0.5; cursor: default; }
+.browser-camera video { display: block; width: 100%; max-width: 640px; margin-top: 1rem; background: var(--ink); }
+
 @media (prefers-reduced-motion: reduce) {
   .panel { transition: none; }
 }
