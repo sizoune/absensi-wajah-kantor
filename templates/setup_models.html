@@ -1,0 +1,18 @@
+{% set model_status = model_setup_status() %}
+<section id="setup-models" data-status-url="{{ url_for('setup.models') }}">
+  <h2>Model pengenalan</h2>
+  <p id="setup-models-summary" role="status">{{ model_status.completed }} dari {{ model_status.total }} model terverifikasi.</p>
+  <progress id="setup-models-progress" value="{{ model_status.completed }}" max="{{ model_status.total }}" aria-label="Model terverifikasi"></progress>
+  <ul>
+    {% for model in model_status.models %}
+    <li data-model-key="{{ model.key }}"><strong>{{ model.label }}</strong>: <span data-model-state>{% if model.state == 'verified' %}Terverifikasi{% else %}{{ model.reason }} {{ model.recovery }}{% endif %}</span></li>
+    {% endfor %}
+  </ul>
+  <p id="setup-models-compatibility">{{ model_status.compatibility_reason }}</p>
+  <p id="setup-models-error" role="alert"></p>
+  <form method="post" action="{{ url_for('setup.models') }}" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn">Siapkan model / coba lagi</button>
+  </form>
+</section>
+<script src="{{ url_for('static', filename='js/setup-models.js') }}" defer></script>

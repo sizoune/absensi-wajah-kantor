@@ -54,6 +54,7 @@ from routes.reports import bp as reports_bp
 from routes.api import bp as api_bp, register_api_error_handlers
 from routes.setup import bp as setup_bp
 import routes.setup_organization  # Register organization steps on the setup blueprint.
+import routes.setup_models  # Register protected model preparation routes.
 from maintenance.api_cli import register_api_commands
 from kiosk.cli import register_kiosk_commands
 from perf.cli import register_perf_commands

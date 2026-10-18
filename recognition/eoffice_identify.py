@@ -11,7 +11,7 @@ from numpy.typing import NDArray
 
 from integration.protocol import JSONValue, MODELS, validate_snapshot
 from recognition.detector import FaceDetection, QualitySettings, assess
-from recognition.eoffice_models import ModelMetadata, _align_auraface, _eye_crop
+from recognition.eoffice_models import ModelMetadata, _align_auraface, _eye_crop, validate_model_compatibility
 from recognition.liveness import LivenessGate, LivenessSettings
 from recognition.matcher import AMBIGUOUS, NO_TEMPLATES, MatchResult, Matcher
 from tracking.face_tracker import FaceTracker, Track, TrackerSettings
@@ -60,11 +60,8 @@ class EofficeGallery:
         snapshot = deepcopy(validate_snapshot(snapshot, test_mode=test_mode))
         if set(models.embedders) != set(MODELS) or models.liveness is None:
             raise ValueError('Both e-office models and passive liveness are required')
-        for version, (_, dimension) in MODELS.items():
-            local = models.embedders[version].manifest
-            policy = snapshot['models'][version]
-            if local != {'version': version, 'dimension': dimension, 'sha256': policy['weights_sha256']}:
-                raise ValueError('Local model does not match authenticated policy')
+        validate_model_compatibility({version: embedder.manifest for version, embedder in models.embedders.items()},
+                                     snapshot['models'])
         self.snapshot_id: str = snapshot['snapshot_id']
         self.policies: dict = snapshot['models']
         self.employees: dict = {(e['embedding_version'], e['pegawai_id']): e for e in snapshot['employees']}
