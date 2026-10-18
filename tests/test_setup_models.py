@@ -19,6 +19,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from integration.store import IntegrationStore
+from extensions import db
+from models import User
 from recognition import model_files as mf
 from services.biometric_service import load_keyring
 from services.setup_service import finish_setup
@@ -118,11 +120,21 @@ def test_existing_verified_models_are_reused_without_a_network_source(tmp_path, 
     assert len(list(directory.iterdir())) == 5
 
 
-def test_partial_download_resumes_after_restart_without_repeating_valid_models_or_admin(tmp_path, model_sources):
+@pytest.mark.parametrize('interruption', ['eof', 'connection_reset'])
+def test_partial_download_resumes_after_restart_without_repeating_valid_models_or_admin(
+        tmp_path, model_sources, interruption):
     app = installation(tmp_path, EOFFICE_BASE_URL='https://office.example', EOFFICE_DEVICE_TOKEN=TOKEN)
 
     def interrupted(request, timeout):
-        return io.BytesIO(CONTENT[:6] if 'glintr100.onnx' in request.full_url else CONTENT)
+        class Reset(io.BytesIO):
+            def read(self, size):
+                if self.tell():
+                    raise ConnectionResetError('Untrusted upstream detail ' + TOKEN)
+                return super().read(size)
+
+        if 'glintr100.onnx' in request.full_url:
+            return Reset(CONTENT[:6]) if interruption == 'connection_reset' else io.BytesIO(CONTENT[:6])
+        return io.BytesIO(CONTENT)
 
     app.extensions['setup_model_opener'] = interrupted
     client = app.test_client()
@@ -262,6 +274,12 @@ def test_after_setup_only_an_active_local_admin_can_retry_models(tmp_path, model
     anonymous = app.test_client()
     assert anonymous.get('/setup/models').status_code == 302
     assert anonymous.post('/setup/models', data={'csrf_token': csrf(anonymous, '/login')}).status_code == 302
+    with app.app_context():
+        db.session.execute(db.update(User).values(is_active=False))
+        db.session.commit()
+    rejected = admin.get('/setup/models')
+    assert rejected.status_code == 302
+    assert '/login' in rejected.headers['Location']
 
 
 @pytest.fixture

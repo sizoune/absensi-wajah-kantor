@@ -165,6 +165,29 @@ keduanya sama; ini belum membuktikan hash aplikasi yang terpasang di perangkat.
 Operator memasang bobot asli secara terpisah; tidak ada konversi TFLite,
 pengunduhan otomatis, enrollment ulang, atau bobot baru dalam commit ini.
 
+Pembaruan wizard first setup (18 Oktober 2026): model diunduh otomatis ke
+`instance/models` pada volume aplikasi. Manifest `recognition/model_files.py`
+memakai sumber YuNet/MiniFASNet yang sudah dipin dan unduhan AuraFace pada commit
+immutable di atas. HEAD sumber AuraFace pada tanggal tersebut mengembalikan ukuran
+260694151 byte dan Git LFS SHA-256 yang sama. Setiap unduhan dibatasi ukuran,
+diverifikasi SHA-256, lalu dipindahkan atomik; model valid yang sudah ada dipakai
+kembali. Kegagalan tidak mengubah mode absensi atau mengaktifkan file parsial.
+
+MobileFaceNet berasal dari `GET /api/kiosk/models/mobilefacenet_v1_periocular`
+pada server eOffice yang dikonfigurasi, memakai token perangkat dan tanpa mengikuti
+redirect. Endpoint tersebut merupakan kontrak distribusi terautentikasi; bobot
+privat tidak disertakan di repositori publik. Admin server harus menyediakan
+artefak persis 5233552 byte dengan hash referensi di atas dalam direktori model
+server. Bila endpoint/artefak belum tersedia, wizard menyebut ketergantungan ini
+dan tetap belum siap; token uji tidak dikirim ke endpoint operasional.
+
+Halaman model menampilkan kemajuan, verifikasi, serta coba lagi. Setelah restart,
+model yang sudah valid tidak diunduh ulang. Setelah setup ditutup, halaman ini
+memerlukan admin lokal aktif. Hash/dimensi lokal tetap harus cocok dengan metadata
+snapshot enrollment terautentikasi melalui gerbang yang sama dengan pengenalan;
+unduhan berhasil sendiri tidak menyatakan perangkat siap absensi. Tidak ada
+klaim penerimaan kamera fisik atau kesetaraan model deployment dari pemeriksaan ini.
+
 `recognition/eoffice_models.py` menyediakan `AuraFaceEmbedder(model_path)` dan
 `PeriocularEmbedder(model_path)`. Keduanya menolak file hilang/hash salah sebelum
 memuat runtime, memeriksa bentuk/tipe tensor, lalu menjalankan inferensi sintetis
