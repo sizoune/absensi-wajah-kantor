@@ -64,7 +64,7 @@ def connect_device(token, base_url):
         record_progress('snapshot', False)
 
 
-def select_organization(skpd_id, scope_type, subunit_id=None):
+def scope_selection(skpd_id, scope_type, subunit_id=None, *, organizations=None):
     if not isinstance(skpd_id, str) or not skpd_id.isascii() or not skpd_id.isdecimal():
         raise ValueError('SKPD tidak valid.')
     if scope_type == 'subunit':
@@ -74,13 +74,19 @@ def select_organization(skpd_id, scope_type, subunit_id=None):
     elif subunit_id in (None, ''):
         subunit_id = None
     scope = EofficeClient.validate_scope({'skpd_id': int(skpd_id), 'scope_type': scope_type, 'subunit_id': subunit_id})
-    organization = next((row for row in current_app.config.get('EOFFICE_ORGANIZATIONS', [])
+    allowed = current_app.config.get('EOFFICE_ORGANIZATIONS', []) if organizations is None else organizations
+    organization = next((row for row in allowed
                          if row['skpd_id'] == scope['skpd_id']), None)
     if organization is None or scope_type not in organization['scope_types']:
         raise ValueError('Cakupan belum disetujui server.')
     subunit = next((row for row in organization.get('subunits', []) if row['subunit_id'] == subunit_id), None)
     if scope_type == 'subunit' and subunit is None:
         raise ValueError('Subunit belum disetujui server untuk SKPD ini.')
+    return scope, organization, subunit
+
+
+def select_organization(skpd_id, scope_type, subunit_id=None):
+    scope, organization, subunit = scope_selection(skpd_id, scope_type, subunit_id)
     previous = _selected_scope() if current_app.config.get('EOFFICE_SCOPE_TYPE') else current_app.config.get('EOFFICE_SERVER_SCOPE')
     if previous != scope and _store_path().exists():
         store = _store()

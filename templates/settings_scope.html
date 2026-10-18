@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Cakupan perangkat{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Ubah cakupan perangkat</h1>
+  <p>Perubahan hanya diterapkan setelah seluruh antrean lama terkirim. Kamera ditahan sampai snapshot cakupan baru tervalidasi.</p>
+  {% if scope_change.capture_held %}<p role="alert">Capture ditahan. Pilih cakupan yang dimaksud dan coba simpan lagi untuk memulihkan snapshot.</p>{% endif %}
+  <form method="post" action="{{ url_for('setup.scope_organizations') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-secondary">Muat ulang organisasi yang diizinkan server</button>
+  </form>
+  {% set scope_management = true %}
+  {% include 'setup_organization.html' %}
+  <p><a href="{{ url_for('setup.readiness_page') }}">Periksa kesiapan perangkat</a></p>
+</section>
+{% endblock %}

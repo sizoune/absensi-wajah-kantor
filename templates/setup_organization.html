@@ -1,5 +1,6 @@
 <section aria-labelledby="organization-title">
   <h2 id="organization-title">SKPD dan cakupan perangkat</h2>
+  {% if not scope_management %}
   <form method="post" action="{{ url_for('setup.credentials') }}" class="form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label for="device-token">Token perangkat dari admin server</label>
@@ -11,13 +12,15 @@
     </details>
     <button type="submit" class="btn">Periksa token dan organisasi</button>
   </form>
+  {% endif %}
   {% if organization_setup.organizations %}
-  <form id="organization-scope-form" method="post" action="{{ url_for('setup.organization_select') }}" class="form">
+  {% set selected_scope = scope_change.pending_scope if scope_management and scope_change.pending_scope else organization_setup %}
+  <form id="organization-scope-form" method="post" action="{{ url_for('setup.scope_change' if scope_management else 'setup.organization_select') }}" class="form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label for="skpd-id">SKPD yang diizinkan server</label>
     <select id="skpd-id" name="skpd_id" required>
       {% for organization in organization_setup.organizations %}
-      <option value="{{ organization.skpd_id }}" {% if organization_setup.skpd_id == organization.skpd_id %}selected{% endif %}>{{ organization.name }}</option>
+      <option value="{{ organization.skpd_id }}" {% if selected_scope.skpd_id == organization.skpd_id %}selected{% endif %}>{{ organization.name }}</option>
       {% endfor %}
     </select>
     <label for="scope-type">Cakupan perangkat</label>
@@ -25,7 +28,7 @@
     <select id="scope-type" name="scope_type" required>
       {% for organization in organization_setup.organizations %}
       {% for scope in organization.scope_types %}
-      <option value="{{ scope }}" data-skpd-id="{{ organization.skpd_id }}" {% if organization_setup.scope_type == scope %}selected{% endif %}>{{ scope_labels[scope] }}</option>
+      <option value="{{ scope }}" data-skpd-id="{{ organization.skpd_id }}" {% if selected_scope.scope_type == scope %}selected{% endif %}>{{ scope_labels[scope] }}</option>
       {% endfor %}
       {% endfor %}
     </select>
@@ -34,7 +37,7 @@
       <option value="">Pilih subunit tertentu</option>
       {% for organization in organization_setup.organizations %}
       {% for subunit in organization.subunits or [] %}
-      <option value="{{ subunit.subunit_id }}" data-skpd-id="{{ organization.skpd_id }}" {% if organization_setup.skpd_id == organization.skpd_id and organization_setup.subunit_id == subunit.subunit_id %}selected{% endif %}>{{ subunit.name }}</option>
+      <option value="{{ subunit.subunit_id }}" data-skpd-id="{{ organization.skpd_id }}" {% if selected_scope.skpd_id == organization.skpd_id and selected_scope.subunit_id == subunit.subunit_id %}selected{% endif %}>{{ subunit.name }}</option>
       {% endfor %}
       {% endfor %}
     </select>
@@ -52,9 +55,11 @@
   {% else %}
   <p role="status">Snapshot enrollment belum tersedia. Coba lagi setelah koneksi atau izin perangkat dipulihkan.</p>
   {% endif %}
+  {% if not scope_management %}
   <form method="post" action="{{ url_for('setup.snapshot_retry') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-secondary">Coba ambil enrollment lagi</button>
   </form>
+  {% endif %}
   {% endif %}
 </section>
