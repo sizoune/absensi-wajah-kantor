@@ -11,6 +11,9 @@
     <header class="kiosk-head">
       <p class="kiosk-org">Dinas Komunikasi dan Informatika Kabupaten Tabalong</p>
       <h1 class="kiosk-title">Absensi Kehadiran</h1>
+      {% if config.ATTENDANCE_MODE == 'eoffice' and config.EOFFICE_TEST_MODE %}
+      <p id="camera-test-banner" role="status"><strong>Uji pengenalan kamera — tidak mencatat absensi resmi</strong></p>
+      {% endif %}
     </header>
 
     <section class="kiosk-clock" aria-label="Waktu server">
@@ -25,7 +28,7 @@
       data-challenge-url="{{ url_for('kiosk.camera_challenge') }}"
       data-frame-url="{{ url_for('kiosk.camera_frame') }}"
       data-stop-url="{{ url_for('kiosk.camera_stop') }}">
-      <h2 id="browser-camera-label">{% if config.ATTENDANCE_MODE == 'eoffice' %}Gambar diproses oleh layanan e-office{% else %}Uji pratinjau kamera — tidak mencatat absensi{% endif %}</h2>
+      <h2 id="browser-camera-label">{% if config.ATTENDANCE_MODE == 'eoffice' and config.EOFFICE_TEST_MODE %}Gambar diproses untuk uji pengenalan{% elif config.ATTENDANCE_MODE == 'eoffice' %}Gambar diproses oleh layanan e-office{% else %}Uji pratinjau kamera — tidak mencatat absensi{% endif %}</h2>
       <p id="browser-camera-status" role="status" aria-live="polite" aria-atomic="true">Kamera belum diaktifkan. Tekan Aktifkan kamera untuk memberi izin.</p>
       <div class="browser-camera-controls">
         <button id="browser-camera-start" type="button" aria-controls="browser-camera-video">Aktifkan kamera</button>

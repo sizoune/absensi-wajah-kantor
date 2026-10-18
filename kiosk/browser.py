@@ -96,6 +96,8 @@ class BrowserCamera:
     def __init__(self, app):
         self.app = app
         self.mode = 'eoffice' if app.config['ATTENDANCE_MODE'] == 'eoffice' else 'preview'
+        if self.mode == 'eoffice' and app.config.get('EOFFICE_TEST_MODE', False):
+            self.mode = 'camera_test'
         self.clock = time.monotonic
         self._lock = RLock()
         self._queue = Queue(maxsize=1)
@@ -254,7 +256,7 @@ class BrowserCamera:
         generation, last_capture, last_publish = -1, None, -1e9
         with self.app.app_context():
             try:
-                if self.mode == 'eoffice':
+                if self.mode != 'preview':
                     from kiosk.cli import load_eoffice
                     from kiosk.worker import KioskWorker
                     from tracking.face_tracker import TrackerSettings
@@ -329,6 +331,8 @@ class BrowserCamera:
                             sync.store.close()
                         integration['integration_store'].close()
                     state.publish({'camera': 'stopped', 'message': None,
+                                   'mode': 'eoffice' if worker is not None else 'preview',
+                                   **({'purpose': 'camera_test'} if self.mode == 'camera_test' else {}),
                                    'hint': PREVIEW_HINT if self.mode == 'preview' else None})
                 except Exception:
                     self.app.logger.exception('Browser camera cleanup failed')

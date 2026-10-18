@@ -40,6 +40,9 @@ EOFFICE_MESSAGES = {
     'operator': ('error', 'Hubungi operator'),
 }
 
+EOFFICE_TEST_MESSAGES = {key: EOFFICE_MESSAGES[key] for key in ('pending', 'uncertain', 'storage', 'operator')}
+EOFFICE_TEST_MESSAGES['test_recorded'] = ('info', 'Uji tersimpan')
+
 
 def integration_view(value: object) -> dict[str, str]:
     """Allowlist global health independently of expiring person messages."""
@@ -111,23 +114,27 @@ class KioskState:
         return None
 
 
-def public_view(state, now=None, stale_seconds=STALE_SECONDS, message_seconds=MESSAGE_SECONDS):
+def public_view(state, now=None, stale_seconds=STALE_SECONDS, message_seconds=MESSAGE_SECONDS, *, test_mode=None):
     """Ringkasan aman untuk halaman kios (tanpa data internal)."""
     now = time.time() if now is None else now
-    if not state or now - float(state.get("heartbeat", 0)) > stale_seconds:
+    if (not state or now - float(state.get("heartbeat", 0)) > stale_seconds
+            or test_mode is not None and (state.get('purpose') == 'camera_test') != test_mode):
         return {"online": False, "camera": "offline", "message": None, "hint": None}
 
     message = state.get("message")
     if message and now - float(message.get("at", 0)) > message_seconds:
         message = None
     if state.get('mode') == 'eoffice':
+        test_mode = state.get('purpose') == 'camera_test'
+        messages = EOFFICE_TEST_MESSAGES if test_mode else EOFFICE_MESSAGES
         public_message = None
         if message:
-            kind, text = EOFFICE_MESSAGES.get(message.get('status'), EOFFICE_MESSAGES['operator'])
+            kind, text = messages.get(message.get('status'), messages['operator'])
             first = str(message.get('first_name') or '').split()
             public_message = {'kind': kind, 'text': (first[0] + ': ' if first else '') + text,
                               'id': message.get('id')}
         return {'online': True, 'camera': state.get('camera', CAMERA_STARTING),
+                **({'purpose': 'camera_test'} if test_mode else {}),
                 'message': public_message, 'hint': None, 'integration': integration_view(state.get('integration'))}
     return {
         "online": True,
@@ -150,7 +157,8 @@ def admin_view(state, now=None, stale_seconds=STALE_SECONDS):
         "camera": state.get("camera"),
         "detail": state.get("detail") or "",
         "employees": state.get("employees", 0),
-        **({"recorded_this_run": state.get("recorded", 0), "recorded_scope": "Sejak layanan dimulai"}
+        **({"recorded_this_run": state.get("recorded", 0),
+            "recorded_scope": "Uji sejak layanan dimulai" if state.get('purpose') == 'camera_test' else "Sejak layanan dimulai"}
            if state.get("mode") == "eoffice" else {"recorded_today": state.get("recorded", 0)}),
         "liveness": state.get("liveness") or "off",
         **({"integration": integration_view(state.get("integration"))} if state.get("mode") == "eoffice" else {}),

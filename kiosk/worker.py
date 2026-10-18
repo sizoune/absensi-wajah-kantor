@@ -104,6 +104,7 @@ class KioskWorker:
         self.liveness_rejected = 0
 
         self.eoffice = app.config.get('ATTENDANCE_MODE', 'standalone') == 'eoffice'
+        self.test_mode = app.config.get('EOFFICE_TEST_MODE', False)
         self.integration_store, self.sync_worker = integration_store, sync_worker
         self.trusted_clock, self.eoffice_models = trusted_clock, eoffice_models
         self.gallery: EofficeGallery | None = None
@@ -116,6 +117,8 @@ class KioskWorker:
             if (integration_store is None or sync_worker is None or trusted_clock is None
                     or eoffice_models is None or self.liveness_settings.mode != 'passive'):
                 raise ValueError('E-office requires durable queue, sync, clock, both models and passive gates')
+            if integration_store.test_mode != self.test_mode or sync_worker.store.test_mode != self.test_mode:
+                raise ValueError('E-office queue purpose differs from configured mode')
             from recognition.eoffice_identify import EofficeTracker
             self.tracker = EofficeTracker(tracker_settings)
 
@@ -203,7 +206,7 @@ class KioskWorker:
                 snapshot = self.integration_store.load_snapshot()
                 if snapshot is not None:
                     from recognition.eoffice_identify import EofficeGallery
-                    self.gallery = EofficeGallery(snapshot, self.eoffice_models)
+                    self.gallery = EofficeGallery(snapshot, self.eoffice_models, test_mode=self.test_mode)
             if status.storage == 'error':
                 self._say_eoffice('storage')
             elif status.auth == 'paused':
@@ -218,6 +221,8 @@ class KioskWorker:
                                'rejected': 'uncertain'}.get(outcome, 'operator')
                     if outcome == 'recorded':
                         display = {'check_in': 'check_in', 'check_out': 'check_out'}.get(data.get('session'), 'operator')
+                    elif self.test_mode and outcome == 'test_recorded':
+                        display = 'test_recorded'
                     self._say_eoffice(display, self.message['first_name'], self._current_event)
                     self._current_event = None
         except (OSError, sqlite3.Error, StoreIntegrityError):
@@ -256,6 +261,8 @@ class KioskWorker:
                         enrollment_revision=event.enrollment_revision, verification_type=event.verification_type,
                         embedding_version=event.embedding_version, evidence={'score': event.score,
                         'second_score': event.second_score, 'quality_ok': True, 'live': True, 'samples': event.samples}, **proof)
+            if self.test_mode:
+                body['purpose'] = 'camera_test'
             payload = json.dumps(body, allow_nan=False, separators=(',', ':')).encode('utf-8')
             if validate_capture is None:
                 self.integration_store.enqueue(payload)
@@ -335,6 +342,7 @@ class KioskWorker:
             "recorded": self.recorded,
             "liveness": self.liveness_settings.mode,
             "mode": "eoffice" if self.eoffice else "standalone",
+            **({'purpose': 'camera_test'} if self.test_mode else {}),
             **({"integration": integration} if self.eoffice else {}),
         }, clock=self.wall_clock)
         if not ok:

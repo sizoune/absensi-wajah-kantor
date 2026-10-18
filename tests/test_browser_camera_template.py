@@ -45,3 +45,13 @@ def test_eoffice_page_keeps_server_attendance_panel_with_processing_label(app, c
     assert 'Gambar diproses oleh layanan e-office' in body
     assert 'hidden' not in Elements(body).ids['panel'][1]
     assert 'Uji pratinjau kamera — tidak mencatat absensi' not in body
+
+
+def test_test_mode_banner_is_visible_with_native_or_browser_camera(app, client):
+    app.config.update(ATTENDANCE_MODE='eoffice', EOFFICE_TEST_MODE=True)
+    for source in ('native', 'browser'):
+        app.config['CAMERA_SOURCE'] = source
+        body = client.get('/kiosk/').get_data(as_text=True)
+        assert 'Uji pengenalan kamera — tidak mencatat absensi resmi' in body
+        assert 'hidden' not in Elements(body).ids['camera-test-banner'][1]
+        assert 'hidden' not in Elements(body).ids['panel'][1]

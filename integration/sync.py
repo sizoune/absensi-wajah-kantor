@@ -75,7 +75,7 @@ class SyncWorker:
     def _refresh(self, status: SyncStatus) -> SyncStatus:
         try:
             snapshot = self.client.snapshot()
-            validate_snapshot(snapshot)
+            validate_snapshot(snapshot, test_mode=self.store.test_mode)
             current = getattr(self.client, 'snapshot_server_time', None)
             if not isinstance(current, datetime) or current.utcoffset() is None:
                 raise ValueError('Authenticated current server Date required')
@@ -129,13 +129,14 @@ class SyncWorker:
                         was_offline = status.connection != 'online'
                         try:
                             result = self.client.send(entry.body)
-                            validate_terminal_response(entry.event_id, result)
+                            validate_terminal_response(entry.event_id, result, test_mode=self.store.test_mode)
                             self.store.finish(entry.event_id, result)
                             self._event_failures = 0
                             self._next_events = self._monotonic()
                             status = replace(status, connection='online', events_sent=status.events_sent + 1,
                                              event_id=entry.event_id, response=result,
-                                             recorded_count=status.recorded_count + int(result.get('data', {}).get('outcome') == 'recorded'))
+                                             recorded_count=status.recorded_count + int(result.get('data', {}).get('outcome') ==
+                                                 ('test_recorded' if self.store.test_mode else 'recorded')))
                             self._publish(replace(status, gallery_changed=False))
                             if was_offline:
                                 self._next_snapshot = self._monotonic()

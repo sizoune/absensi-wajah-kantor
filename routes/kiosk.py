@@ -31,7 +31,8 @@ def page():
 
 @bp.get("/status")
 def status():
-    view = public_view(KioskState(current_app.config["KIOSK_STATE_FILE"]).read())
+    view = public_view(KioskState(current_app.config["KIOSK_STATE_FILE"]).read(),
+                       test_mode=current_app.config.get('EOFFICE_TEST_MODE', False))
     now = office_now()
     view["time"] = now.strftime("%H:%M:%S")
     view["date"] = _date_text(now)

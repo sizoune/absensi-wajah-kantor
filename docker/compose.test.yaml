@@ -1,0 +1,4 @@
+services:
+  camera:
+    environment:
+      EOFFICE_TEST_MODE: "true"

@@ -8,6 +8,7 @@ services:
       APP_ENV: production
       CAMERA_SOURCE: browser
       ATTENDANCE_MODE: standalone
+      EOFFICE_TEST_MODE: "false"
     volumes:
       - instance:/app/instance
     read_only: true

@@ -58,12 +58,13 @@ def load_eoffice(app: Flask) -> tuple[YuNetDetector, QualitySettings, PassiveLiv
     if settings.mode != 'passive' or liveness is None:
         raise ValueError('E-office requires passive liveness')
     active, keys = load_keyring(app.config['EOFFICE_KEY_FILE'])
-    client = EofficeClient(app.config['EOFFICE_BASE_URL'], app.config['EOFFICE_DEVICE_TOKEN'])
-    path = Path(app.instance_path) / 'eoffice.sqlite3'
-    frame_store = IntegrationStore(path, keys[active])
+    test_mode = app.config.get('EOFFICE_TEST_MODE', False)
+    client = EofficeClient(app.config['EOFFICE_BASE_URL'], app.config['EOFFICE_DEVICE_TOKEN'], test_mode=test_mode)
+    path = Path(app.instance_path) / ('eoffice-test.sqlite3' if test_mode else 'eoffice.sqlite3')
+    frame_store = IntegrationStore(path, keys[active], test_mode=test_mode)
     worker_store = None
     try:
-        worker_store = IntegrationStore(path, keys[active])
+        worker_store = IntegrationStore(path, keys[active], test_mode=test_mode)
         clock = TrustedClock(store=worker_store)
         sync = SyncWorker(worker_store, client, clock)
     except BaseException:
@@ -140,7 +141,8 @@ def register_kiosk_commands(app):
             except webcam.CameraError as exc:
                 click.secho(f"Kamera belum siap: {exc} Akan dicoba lagi otomatis.", fg="yellow")
 
-            window = "Kios absensi - kamera"
+            test_mode = eoffice and app.config.get('EOFFICE_TEST_MODE', False)
+            window = 'Uji pengenalan kamera' if test_mode else 'Kios absensi - kamera'
 
             def show(frame, tracks):
                 header = ["MENCATAT ABSENSI", "Ctrl+C di terminal untuk berhenti"]
@@ -151,9 +153,13 @@ def register_kiosk_commands(app):
                     from kiosk.state import public_view
                     view = frame.copy()
                     message = public_view({'mode': 'eoffice', 'heartbeat': worker.wall_clock(),
+                                           **({'purpose': 'camera_test'} if test_mode else {}),
                                            'message': worker.message}, now=worker.wall_clock())['message']
                     text = message['text'] if message else 'Silakan berjalan di depan kamera'
                     cv2.putText(view, text, (12, 30), cv2.FONT_HERSHEY_SIMPLEX, .7, (255, 255, 255), 2)
+                    if test_mode:
+                        cv2.putText(view, 'UJI PENGENALAN - BUKAN ABSENSI RESMI', (12, 60),
+                                    cv2.FONT_HERSHEY_SIMPLEX, .6, (0, 255, 255), 2)
                 else:
                     view = identify.annotate(frame, tracks, people, header, gate_state)
                 cv2.imshow(window, view)
@@ -180,7 +186,8 @@ def register_kiosk_commands(app):
                 stop["flag"] = True
 
             signal.signal(signal.SIGINT, request_stop)
-            click.secho("Layanan kamera berjalan dan MENCATAT ABSENSI. Buka /kiosk di browser.",
+            click.secho(('Uji pengenalan kamera berjalan; tidak mencatat absensi resmi. Buka /kiosk di browser.'
+                         if test_mode else 'Layanan kamera berjalan dan MENCATAT ABSENSI. Buka /kiosk di browser.'),
                         fg="green")
             if live_settings.mode == "off":
                 click.secho("Peringatan: pemeriksaan anti-foto DIMATIKAN (LIVENESS_MODE=off).", fg="yellow")

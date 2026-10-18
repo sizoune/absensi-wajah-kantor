@@ -72,6 +72,38 @@ def test_missing_secret_with_existing_database_fails_without_regeneration(tmp_pa
     assert (tmp_path / 'app.sqlite3').read_bytes() == original
 
 
+def test_missing_secret_with_existing_test_queue_fails_without_regeneration(tmp_path):
+    queue = tmp_path / 'eoffice-test.sqlite3'
+    queue.write_bytes(b'existing encrypted trial queue')
+    with pytest.raises(RuntimeError, match='secret_key'):
+        startup()['create_container_app'](tmp_path)
+    assert not (tmp_path / 'secret_key').exists()
+    assert queue.read_bytes() == b'existing encrypted trial queue'
+
+
+def test_trial_wrapper_clears_ambient_settings_and_selects_test_queue_context(tmp_path):
+    if not shutil.which('docker'):
+        pytest.skip('Docker Compose CLI is unavailable')
+    project = tmp_path / 'camera trial'
+    (project / 'docker').mkdir(parents=True)
+    for name in ('compose.yaml', 'docker/compose.eoffice.yaml', 'docker/compose.test.yaml',
+                 'docker/test-compose.sh'):
+        shutil.copy2(ROOT / name, project / name)
+    shutil.copy2(ROOT / 'docker/compose.test.env.example', project / 'docker/compose.test.env')
+    environment = dict(os.environ, EOFFICE_TEST_MODE='false', ATTENDANCE_MODE='standalone',
+        EOFFICE_BASE_URL='https://ambient.invalid', EOFFICE_DEVICE_TOKEN='ambient-token',
+        EOFFICE_HOST_MODEL_DIR='/ambient/models', EOFFICE_HOST_KEY_FILE='/ambient/key.json')
+    result = subprocess.run([str(project / 'docker/test-compose.sh'), 'config', '--format', 'json'],
+                            cwd=tmp_path, env=environment, capture_output=True, text=True, check=True)
+    service = json.loads(result.stdout)['services']['camera']
+    assert service['environment']['ATTENDANCE_MODE'] == 'eoffice'
+    assert service['environment']['EOFFICE_TEST_MODE'] == 'true'
+    assert service['environment']['LIVENESS_MODE'] == 'passive'
+    assert service['environment']['EOFFICE_BASE_URL'] == 'https://production.example.invalid'
+    assert service['environment']['EOFFICE_DEVICE_TOKEN'] == 'replace-with-dedicated-expiring-test-device-token'
+    assert all(mount['source'].startswith('/absolute/') for mount in service['volumes'] if mount['type'] == 'bind')
+
+
 def test_waitress_does_not_spill_allowed_frames_to_disk(monkeypatch):
     import waitress
     from waitress.adjustments import Adjustments
@@ -162,6 +194,7 @@ def test_default_compose_ignores_ambient_integration_settings():
     if not shutil.which('docker'):
         pytest.skip('Docker Compose CLI is unavailable')
     environment = dict(os.environ, ATTENDANCE_MODE='eoffice', CAMERA_SOURCE='native',
+                       EOFFICE_TEST_MODE='true',
                        EOFFICE_DEVICE_TOKEN='ambient-must-not-enter-container',
                        DATABASE_URL='mysql://ambient', SECRET_KEY='ambient-secret')
     result = subprocess.run(['docker', 'compose', '-f', 'compose.yaml', 'config', '--format', 'json'],
@@ -169,6 +202,7 @@ def test_default_compose_ignores_ambient_integration_settings():
     config = json.loads(result.stdout)
     service = config['services']['camera']
     assert service['environment']['ATTENDANCE_MODE'] == 'standalone'
+    assert service['environment']['EOFFICE_TEST_MODE'] == 'false'
     assert service['environment']['CAMERA_SOURCE'] == 'browser'
     assert 'EOFFICE_DEVICE_TOKEN' not in service['environment']
     assert 'SECRET_KEY' not in service['environment']
@@ -189,6 +223,7 @@ def test_integration_wrapper_uses_selected_file_over_ambient_settings(tmp_path):
         shutil.copy2(ROOT / name, project / name)
     shutil.copy2(ROOT / 'docker/compose.env.example', project / 'docker/compose.env')
     environment = dict(os.environ,
+                       EOFFICE_TEST_MODE='true',
                        EOFFICE_BASE_URL='https://ambient-production.example.invalid',
                        EOFFICE_DEVICE_TOKEN='ambient-production-token',
                        EOFFICE_HOST_MODEL_DIR='/ambient-production/models',
@@ -198,6 +233,7 @@ def test_integration_wrapper_uses_selected_file_over_ambient_settings(tmp_path):
                             cwd=tmp_path, env=environment, capture_output=True, text=True, check=True)
     service = json.loads(result.stdout)['services']['camera']
     assert service['environment']['ATTENDANCE_MODE'] == 'eoffice'
+    assert service['environment']['EOFFICE_TEST_MODE'] == 'false'
     assert service['environment']['LIVENESS_MODE'] == 'passive'
     assert service['environment']['EOFFICE_BASE_URL'] == 'https://staging.example.invalid'
     assert service['environment']['EOFFICE_DEVICE_TOKEN'] == 'replace-with-authorized-staging-device-token'

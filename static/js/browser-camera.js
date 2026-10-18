@@ -162,6 +162,7 @@
       }
       status.textContent = data.mode === "preview"
         ? "Pratinjau kamera aktif. Tidak mencatat absensi."
+        : data.mode === "camera_test" ? "Uji pengenalan kamera aktif; tidak mencatat absensi resmi. Hasil uji ditampilkan dari server."
         : "Kamera aktif. Gambar diproses; hasil absensi ditampilkan dari server.";
       current.canvas = document.createElement("canvas");
       frame(current);

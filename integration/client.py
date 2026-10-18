@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPSHandler, HTTPRedirectHandler, Request, build_opener
 
 from integration.clock import MAX_ANCHOR_UNCERTAINTY_SECONDS
-from integration.protocol import JSONValue, MAX_SNAPSHOT_BYTES, UUID, validate_snapshot, validate_terminal_response
+from integration.protocol import JSONValue, MAX_SNAPSHOT_BYTES, UUID, validate_event_purpose, validate_snapshot, validate_terminal_response
 
 
 class RequestFailure(RuntimeError):
@@ -51,7 +51,7 @@ def _json(body: bytes) -> dict[str, JSONValue]:
 
 
 class EofficeClient:
-    def __init__(self, base_url: str, token: str) -> None:
+    def __init__(self, base_url: str, token: str, *, test_mode: bool = False) -> None:
         if type(base_url) is not str:
             raise ValueError('Expected HTTPS e-office URL')
         url = urlsplit(base_url)
@@ -63,6 +63,8 @@ class EofficeClient:
             raise ValueError('Expected e-office device token')
         self._base_url = base_url.rstrip('/')
         self._token = token
+        self.test_mode = test_mode
+        self._path = '/api/kiosk-test' if test_mode else '/api/kiosk'
         self._opener = build_opener(HTTPSHandler(context=ssl.create_default_context()), RejectRedirects())
         self.snapshot_server_time: datetime | None = None
         self.snapshot_received_monotonic: float | None = None
@@ -74,6 +76,7 @@ class EofficeClient:
     def _request(self, path: str, body: bytes | None, limit: int) -> tuple[int, dict[str, JSONValue], Any, float, float, float]:
         request = Request(self._base_url + path, data=body, headers={
             'Authorization': 'Bearer ' + self._token, 'Accept': 'application/json',
+            'User-Agent': 'EofficeCamera/1.0',
             'Accept-Encoding': 'identity', 'Cache-Control': 'no-cache', 'Content-Type': 'application/json; charset=utf-8'})
         started = self._monotonic()
         try:
@@ -108,10 +111,10 @@ class EofficeClient:
     def snapshot(self) -> dict[str, JSONValue]:
         self.snapshot_server_time = None
         self.snapshot_received_monotonic = self.snapshot_received_wall_time = self.snapshot_uncertainty_seconds = None
-        code, snapshot, headers, received_monotonic, received_wall, uncertainty = self._request('/api/kiosk/snapshot', None, MAX_SNAPSHOT_BYTES)
+        code, snapshot, headers, received_monotonic, received_wall, uncertainty = self._request(self._path + '/snapshot', None, MAX_SNAPSHOT_BYTES)
         if code != 200:
             raise RequestFailure(code)
-        validate_snapshot(snapshot)
+        validate_snapshot(snapshot, test_mode=self.test_mode)
         dates = headers.get_all('Date', [])
         if len(dates) != 1:
             raise ValueError('Missing or ambiguous authenticated server Date')
@@ -130,10 +133,12 @@ class EofficeClient:
     def send(self, event_bytes: bytes) -> dict[str, JSONValue]:
         if type(event_bytes) is not bytes or len(event_bytes) > 16 * 1024:
             raise ValueError('Expected immutable bounded event bytes')
-        event_id = _json(event_bytes).get('event_id')
+        event = _json(event_bytes)
+        validate_event_purpose(event, test_mode=self.test_mode)
+        event_id = event.get('event_id')
         if type(event_id) is not str or UUID.fullmatch(event_id) is None:
             raise ValueError('Invalid event ID')
-        code, result, _, _, _, _ = self._request('/api/kiosk/events', event_bytes, 16 * 1024)
+        code, result, _, _, _, _ = self._request(self._path + '/events', event_bytes, 16 * 1024)
         if code in (400, 409):
             # Existing API errors use text; the encrypted local terminal contract uses message.
             if (set(result) not in ({'status', 'text'}, {'status', 'text', 'event_id'},
@@ -145,4 +150,4 @@ class EofficeClient:
             if 'event_id' in result:
                 body['event_id'] = result['event_id']
             result = {'status_code': code, 'event_id': event_id, 'body': body}
-        return validate_terminal_response(event_id, result)
+        return validate_terminal_response(event_id, result, test_mode=self.test_mode)

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from uuid import uuid4
 
 from integration.store import IntegrationStore
@@ -223,15 +224,18 @@ def test_local_model_loader_rejects_eoffice_before_sface(app, monkeypatch):
         _load_models(app)
 
 
-@pytest.fixture
-def startup(app, tmp_path, monkeypatch, biometric_keys):
+@pytest.fixture(params=[False, True])
+def startup(app, tmp_path, monkeypatch, biometric_keys, request):
     import kiosk.cli as cli
     import recognition.eoffice_models as assets
     from camera import webcam
     scene = setup_scene()
     snap, models, _, _, detector, frame = scene
+    test_mode = request.param
+    if test_mode:
+        snap['purpose'] = 'camera_test'
     app.instance_path = str(tmp_path / 'instance')
-    app.config.update(ATTENDANCE_MODE='eoffice', LIVENESS_MODE='passive',
+    app.config.update(ATTENDANCE_MODE='eoffice', EOFFICE_TEST_MODE=test_mode, LIVENESS_MODE='passive',
                       EOFFICE_KEY_FILE=biometric_keys, EOFFICE_AURAFACE_PATH='synthetic-face',
                       EOFFICE_PERIOCULAR_PATH='synthetic-eye', EOFFICE_BASE_URL='https://synthetic.invalid',
                       EOFFICE_DEVICE_TOKEN='synthetic-test-token')
@@ -244,8 +248,12 @@ def startup(app, tmp_path, monkeypatch, biometric_keys):
     monkeypatch.setattr('services.biometric_service.load_active_templates', lambda *a: pytest.fail('local gallery called'))
     monkeypatch.setattr('kiosk.worker.fe.claim_next', lambda: pytest.fail('local enrollment called'))
     transport = Transport(snapshot=snap)
-    transport.send = lambda body: terminal(json.loads(body)['event_id'])
-    monkeypatch.setattr('integration.client.EofficeClient', lambda *a: transport)
+    from test_eoffice_test_mode import trial_result
+    transport.send = lambda body: (trial_result if test_mode else terminal)(json.loads(body)['event_id'])
+    def client(*args, **kwargs):
+        assert kwargs == {'test_mode': test_mode}
+        return transport
+    monkeypatch.setattr('integration.client.EofficeClient', client)
     released = []
     cam = SimpleNamespace(actual={'index': 0, 'width': 240, 'height': 240}, open=lambda: None,
                           read=lambda: frame, release=lambda: released.append(True))
@@ -274,6 +282,12 @@ def test_cli_starts_stops_separate_stores_and_releases_camera(app, startup, monk
     monkeypatch.setattr(KioskWorker, 'run', bounded)
     result = app.test_cli_runner().invoke(args=['kiosk-run', '--no-preview'])
     assert result.exit_code == 0, result.output
+    test_mode = app.config['EOFFICE_TEST_MODE']
+    assert (Path(app.instance_path) / ('eoffice-test.sqlite3' if test_mode else 'eoffice.sqlite3')).exists()
+    assert not (Path(app.instance_path) / ('eoffice.sqlite3' if test_mode else 'eoffice-test.sqlite3')).exists()
+    if test_mode:
+        assert 'tidak mencatat absensi resmi' in result.output
+        assert 'MENCATAT ABSENSI' not in result.output
     resource, = resources
     sync = resource['sync_worker']
     assert resource['integration_store'] is not sync.store

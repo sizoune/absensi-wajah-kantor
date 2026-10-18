@@ -15,7 +15,7 @@ from typing import TypedDict
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from integration.protocol import JSONValue, UUID, validate_snapshot, validate_terminal_response
+from integration.protocol import JSONValue, UUID, validate_event_purpose, validate_snapshot, validate_terminal_response
 
 
 class ClockAnchorMetadata(TypedDict):
@@ -56,10 +56,11 @@ def _event_id(value: object) -> str:
 
 
 class IntegrationStore:
-    def __init__(self, path: str | PathLike[str], key: bytes) -> None:
+    def __init__(self, path: str | PathLike[str], key: bytes, *, test_mode: bool = False) -> None:
         if type(key) is not bytes or len(key) != 32:
             raise ValueError('Integration encryption requires a 32-byte key')
         self._cipher = AESGCM(key)
+        self.test_mode = test_mode
         self._lock = RLock()
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path, timeout=5.0, check_same_thread=False)
@@ -71,12 +72,13 @@ class IntegrationStore:
                 self._db.execute('CREATE TABLE IF NOT EXISTS metadata (name TEXT PRIMARY KEY, payload BLOB NOT NULL)')
                 self._db.execute('CREATE TABLE IF NOT EXISTS events (event_id TEXT PRIMARY KEY, body BLOB NOT NULL, response BLOB)')
                 row = self._db.execute("SELECT payload FROM metadata WHERE name='key_check'").fetchone()
+                key_check = b'eoffice-test-state-v1' if test_mode else b'eoffice-state-v1'
                 if row is None:
                     if self._db.execute('SELECT 1 FROM events UNION ALL SELECT 1 FROM snapshot LIMIT 1').fetchone():
                         raise StoreIntegrityError('Integration key check is missing')
                     self._db.execute('INSERT INTO metadata VALUES (?, ?)',
-                                     ('key_check', self._encrypt(b'eoffice-state-v1', 'metadata:key_check')))
-                elif self._decrypt(row[0], 'metadata:key_check') != b'eoffice-state-v1':
+                                     ('key_check', self._encrypt(key_check, 'metadata:key_check')))
+                elif self._decrypt(row[0], 'metadata:key_check') != key_check:
                     raise StoreIntegrityError('Invalid integration key check')
         except BaseException:
             self._db.close()
@@ -101,6 +103,7 @@ class IntegrationStore:
             raise ValueError('Invalid event JSON') from exc
         if type(event) is not dict:
             raise ValueError('Expected an event object')
+        validate_event_purpose(event, test_mode=self.test_mode)
         event_id = _event_id(event.get('event_id'))
         identity = f'event:{event_id}'
         with self._lock, self._db:
@@ -121,7 +124,7 @@ class IntegrationStore:
     def _validate_stored_response(self, event_id: str, response: bytes) -> None:
         try:
             decoded = json.loads(self._decrypt(response, f'response:{event_id}'))
-            validate_terminal_response(event_id, decoded)
+            validate_terminal_response(event_id, decoded, test_mode=self.test_mode)
         except ValueError as exc:
             raise StoreIntegrityError('Invalid integration terminal response') from exc
 
@@ -132,11 +135,19 @@ class IntegrationStore:
                 if response is not None:
                     self._validate_stored_response(event_id, response)
                 else:
-                    pending.append(PendingEvent(event_id, self._decrypt(body, f'event:{event_id}')))
+                    decoded = self._decrypt(body, f'event:{event_id}')
+                    try:
+                        event = json.loads(decoded)
+                        validate_event_purpose(event, test_mode=self.test_mode)
+                        if event.get('event_id') != event_id:
+                            raise ValueError('Stored event identity mismatch')
+                    except ValueError as exc:
+                        raise StoreIntegrityError('Invalid integration event purpose or identity') from exc
+                    pending.append(PendingEvent(event_id, decoded))
             return pending
 
     def replace_snapshot(self, snapshot: dict[str, JSONValue]) -> None:
-        validate_snapshot(snapshot)
+        validate_snapshot(snapshot, test_mode=self.test_mode)
         body = json.dumps(snapshot, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
         # Detach the validated envelope from the caller before taking the write lock.
         snapshot_id = json.loads(body)['snapshot_id']
@@ -158,14 +169,14 @@ class IntegrationStore:
             if row is None:
                 return None
             snapshot = json.loads(self._decrypt(row[1], f'snapshot:{row[0]}'))
-            validate_snapshot(snapshot)
+            validate_snapshot(snapshot, test_mode=self.test_mode)
             if snapshot['snapshot_id'] != row[0]:
                 raise StoreIntegrityError('Integration snapshot identity mismatch')
             return snapshot
 
     def finish(self, event_id: str, response: dict[str, JSONValue]) -> None:
         event_id = _event_id(event_id)
-        validate_terminal_response(event_id, response)
+        validate_terminal_response(event_id, response, test_mode=self.test_mode)
         body = json.dumps(response, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
         with self._lock, self._db:
             self._db.execute('BEGIN IMMEDIATE')

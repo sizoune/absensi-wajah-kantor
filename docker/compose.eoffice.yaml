@@ -2,6 +2,7 @@ services:
   camera:
     environment:
       ATTENDANCE_MODE: eoffice
+      EOFFICE_TEST_MODE: "false"
       LIVENESS_MODE: passive
       EOFFICE_BASE_URL: ${EOFFICE_BASE_URL:?Isi URL HTTPS staging di docker/compose.env}
       EOFFICE_DEVICE_TOKEN: ${EOFFICE_DEVICE_TOKEN:?Isi token perangkat staging di docker/compose.env}

@@ -309,3 +309,14 @@ test('frame acknowledgement is processing only and never an attendance result', 
   assert.equal(ui.element('message').textContent, 'Server result');
   ui.stop(); await flush();
 });
+
+test('test mode transport acknowledgement never displays a saved or official result', async () => {
+  const ui = setup({mode: 'camera_test'});
+  ui.element('message').textContent = 'Menunggu sinkronisasi';
+  await ui.start(); await flush();
+  assert.match(ui.status(), /uji pengenalan/i);
+  assert.match(ui.status(), /tidak mencatat absensi resmi/i);
+  assert.doesNotMatch(ui.status(), /tersimpan|berhasil|tercatat/i);
+  assert.equal(ui.element('message').textContent, 'Menunggu sinkronisasi');
+  ui.stop(); await flush();
+});

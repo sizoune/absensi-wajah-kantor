@@ -47,8 +47,8 @@ batas join Waitress dan kamera berjumlah paling lama sekitar 12 detik, dengan
 grace period Compose 20 detik. Tidak ada proses `kiosk-run` kedua.
 
 Volume `eoffice-camera_instance` menyimpan `secret_key`, SQLite `app.sqlite3`,
-status/kunci proses kios, dan nanti antrean `eoffice.sqlite3` bila integrasi
-diaktifkan. `secret_key` dibuat sekali dengan izin 0600 dan dipakai lagi setelah
+status/kunci proses kios, dan antrean `eoffice.sqlite3` atau `eoffice-test.sqlite3`
+bila integrasi diaktifkan. `secret_key` dibuat sekali dengan izin 0600 dan dipakai lagi setelah
 restart/recreate. File yang kosong/rusak menghentikan startup; jangan hapus untuk
 memaksa startup berhasil. Pulihkan cadangan yang benar. Tidak ada reset, rekey,
 rotasi atau migrasi destruktif otomatis. Startup hanya membuat metadata
@@ -105,9 +105,9 @@ Validasi tanpa mencetak token, lalu jalankan konfigurasi integrasi secara sengaj
 ```
 
 Gunakan wrapper ini untuk semua perintah integrasi. Wrapper menentukan folder
-proyek dari lokasinya dan menghapus empat variabel `EOFFICE_BASE_URL`,
+proyek dari lokasinya dan menghapus variabel `EOFFICE_BASE_URL`,
 `EOFFICE_DEVICE_TOKEN`, `EOFFICE_HOST_MODEL_DIR`, serta `EOFFICE_HOST_KEY_FILE`
-dari environment shell sebelum memanggil Compose. Nilai dalam
+dan `EOFFICE_TEST_MODE` dari environment shell sebelum memanggil Compose. Nilai dalam
 `docker/compose.env` menjadi sumber konfigurasi staging yang dipilih, meskipun
 shell sebelumnya berisi konfigurasi produksi.
 
@@ -130,6 +130,73 @@ Hentikan integrasi melalui wrapper yang sama:
 `docker compose up` berikutnya kembali ke pratinjau. Antrean integrasi tetap ada
 tetapi tidak disinkronkan sampai konfigurasi integrasi dinyalakan lagi. Jangan
 mengganti perangkat/token/kunci untuk mengirim antrean lama milik perangkat lain.
+
+## Uji pengenalan terisolasi pada API produksi
+
+Gunakan hanya sesudah operator menyiapkan API `/api/kiosk-test`, tiga tabel uji
+terpisah, dan perangkat uji khusus berumur 24 jam dengan unit yang telah
+diverifikasi. Jalur ini memakai gallery approved yang diizinkan perangkat dan
+mengabaikan jadwal hanya pada endpoint uji; hasilnya tidak masuk rekap absensi
+resmi. Jangan gunakan token perangkat absensi resmi.
+
+Sediakan model terverifikasi yang sama seperti di atas dan keyring antrean uji
+baru di luar proyek. Jangan mengganti keyring antrean yang sudah ada. Buat file
+konfigurasi uji yang diabaikan Git/konteks build, lalu edit URL HTTPS produksi,
+token uji khusus dan path absolut model/keyring:
+
+```sh
+cp -n docker/compose.test.env.example docker/compose.test.env
+chmod 600 docker/compose.test.env
+./docker/test-compose.sh config --quiet
+./docker/test-compose.sh up --build
+```
+
+Wrapper memakai overlay e-office ditambah `docker/compose.test.yaml`, menetapkan
+`ATTENDANCE_MODE=eoffice`, `EOFFICE_TEST_MODE=true`, `LIVENESS_MODE=passive`, dan
+menghapus lima variabel e-office di atas dari shell sebelum membaca
+`docker/compose.test.env`. Compose default tetap pratinjau dan wrapper staging
+tetap memakai mode resmi dengan `EOFFICE_TEST_MODE=false`.
+
+Kios menampilkan **Uji pengenalan kamera — tidak mencatat absensi resmi** pada
+halaman native/browser. Tekan **Aktifkan kamera** untuk memulai capture browser.
+Model AuraFace/periocular, quality, passive liveness, waktu server dan batas
+freshness tetap diperiksa oleh pipeline yang sama. User-Agent HTTP adalah
+`EofficeCamera/1.0`; tidak ada perubahan pemeriksaan TLS atau penanganan 403.
+
+Snapshot/event wajib memiliki `purpose:camera_test`. Antrean terenkripsi berada
+di `instance/eoffice-test.sqlite3`, terpisah dari `eoffice.sqlite3`; metadata
+terenkripsi mengikat mode sehingga pemindahan/rename file tidak dapat menukar
+konteks antrean. Retry memakai byte asli. Hanya terminal server terverifikasi
+`test_recorded`, `test_id` positif dan `official_attendance:false` dapat
+menampilkan **Uji tersimpan**. Acknowledgement frame, transport 200 atau event
+pending tidak menampilkan hasil tersimpan. `401/403` menghentikan sync hingga
+operator memperbaiki konfigurasi; jangan menghapus antrean atau melonggarkan
+policy untuk melanjutkan.
+
+```sh
+./docker/test-compose.sh down
+```
+
+Perintah ini mempertahankan volume dan antrean uji. Operator dapat mencabut
+perangkat uji di API; setelah kedaluwarsa/revokasi, antrean ditahan untuk review.
+Mode lain tidak mengirim antrean uji. Backup antrean uji dengan layanan berhenti,
+simpan keyring terpisah, dan pulihkan `secret_key` asli jika hilang. Startup
+menolak membuat secret baru bila salah satu database lama masih ada.
+
+Uji developer tanpa API produksi, gallery nyata atau kamera fisik:
+
+```sh
+python tests/fixtures/camera_test_http.py
+docker build -t eoffice-camera-test:task2 .
+docker run --rm --read-only --tmpfs /tmp:size=32m,mode=1777 \
+  --mount type=bind,source="$(pwd)/tests",target=/app/tests,readonly \
+  --entrypoint python eoffice-camera-test:task2 /app/tests/fixtures/camera_test_http.py
+```
+
+Fixture hanya menggunakan loopback HTTP dan data/model sintetis, menjalankan
+worker pengenalan asli untuk kedua jenis model, menelan respons pertama lalu
+memverifikasi retry identik dan terminal UI. Ini belum memverifikasi bobot,
+credential, TLS edge, kalibrasi atau penerimaan kamera fisik produksi.
 
 ## Batas uji dan penanganan gangguan
 

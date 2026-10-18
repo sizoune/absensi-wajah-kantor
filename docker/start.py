@@ -40,7 +40,7 @@ def create_container_app(instance_dir=None):
     instance_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     secret_path = instance_dir / 'secret_key'
     if not secret_path.exists() and any((instance_dir / name).exists()
-                                        for name in ('app.sqlite3', 'eoffice.sqlite3')):
+                                        for name in ('app.sqlite3', 'eoffice.sqlite3', 'eoffice-test.sqlite3')):
         raise RuntimeError(f'{secret_path}: secret_key hilang; pulihkan cadangan, jangan buat ulang.')
     app = create_app('production', overrides={
         'SECRET_KEY': load_secret(secret_path),

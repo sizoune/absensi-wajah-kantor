@@ -66,9 +66,12 @@ def _model(model, version, dimension):
     _require(_number(live['decide_seconds'], 0, 300) and live['decide_seconds'] > 0, 'liveness decide_seconds')
 
 
-def validate_snapshot(value):
+def validate_snapshot(value, *, test_mode=False):
     """Return the validated snapshot unchanged; invalid snapshots raise ValueError."""
-    _object(value, 'protocol_version snapshot_id issued_at sync_after_seconds clock_anchor_id policy_revision models employees', 'root fields')
+    fields = 'protocol_version snapshot_id issued_at sync_after_seconds clock_anchor_id policy_revision models employees'
+    _object(value, fields + (' purpose' if test_mode else ''), 'root fields')
+    if test_mode:
+        _require(value['purpose'] == 'camera_test', 'purpose')
     _require(type(value['protocol_version']) is int and value['protocol_version'] == 1, 'protocol_version')
     for field in ('snapshot_id', 'clock_anchor_id'):
         _require(_uuid(value[field]), field)
@@ -110,7 +113,13 @@ def validate_snapshot(value):
 JSONValue = None | bool | int | float | str | list['JSONValue'] | dict[str, 'JSONValue']
 
 
-def validate_terminal_response(event_id: str, response: dict[str, JSONValue]) -> dict[str, JSONValue]:
+def validate_event_purpose(event: object, *, test_mode: bool = False) -> None:
+    if (type(event) is not dict
+            or (event.get('purpose') != 'camera_test' if test_mode else 'purpose' in event)):
+        raise ValueError('Invalid e-office event purpose')
+
+
+def validate_terminal_response(event_id: str, response: dict[str, JSONValue], *, test_mode: bool = False) -> dict[str, JSONValue]:
     """Validate server outcomes or locally bound terminal HTTP 400/409 errors."""
     if not _uuid(event_id) or type(response) is not dict:
         raise ValueError('Invalid terminal e-office response')
@@ -126,6 +135,16 @@ def validate_terminal_response(event_id: str, response: dict[str, JSONValue]) ->
     if set(response) != {'status', 'data'} or response['status'] is not True:
         raise ValueError('Invalid terminal e-office response envelope')
     data = response['data']
+    if test_mode:
+        reasons = ('snapshot_not_authorized', 'enrollment_not_authorized', 'invalid_clock_proof', 'recognition_evidence_failed')
+        if (type(data) is not dict
+                or set(data) != {'event_id', 'outcome', 'reason', 'test_id', 'official_attendance', 'purpose', 'received_at'}
+                or data['event_id'] != event_id or data['official_attendance'] is not False
+                or data['purpose'] != 'camera_test' or not _wita(data['received_at'])
+                or not (data['outcome'] == 'test_recorded' and data['reason'] is None and _integer(data['test_id'])
+                        or data['outcome'] == 'rejected' and data['test_id'] is None and data['reason'] in reasons)):
+            raise ValueError('Invalid terminal camera test response data')
+        return response
     if (type(data) is not dict
             or set(data) != {'event_id', 'outcome', 'reason', 'ad_id', 'work_date', 'session', 'received_at'}
             or data['event_id'] != event_id or type(data['outcome']) is not str

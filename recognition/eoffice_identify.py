@@ -56,8 +56,8 @@ class EofficeEvent:
 
 
 class EofficeGallery:
-    def __init__(self, snapshot: dict[str, JSONValue], models: EofficeModels) -> None:
-        snapshot = deepcopy(validate_snapshot(snapshot))
+    def __init__(self, snapshot: dict[str, JSONValue], models: EofficeModels, *, test_mode: bool = False) -> None:
+        snapshot = deepcopy(validate_snapshot(snapshot, test_mode=test_mode))
         if set(models.embedders) != set(MODELS) or models.liveness is None:
             raise ValueError('Both e-office models and passive liveness are required')
         for version, (_, dimension) in MODELS.items():

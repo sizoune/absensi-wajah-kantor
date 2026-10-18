@@ -34,7 +34,7 @@ pemilihan dan lisensi: [docs/MODEL_DECISION.md](docs/MODEL_DECISION.md).
 | [docs/BACKUP.md](docs/BACKUP.md) | Backup harian, uji pemulihan, pemulihan bencana, pengosongan data uji |
 | [docs/MODEL_DECISION.md](docs/MODEL_DECISION.md) | Pemilihan model, lisensi, kalibrasi ambang dan anti-foto |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Hasil uji performa |
-| [docs/DOCKER.md](docs/DOCKER.md) | Uji kamera browser Mac dengan Docker: pratinjau tanpa absensi dan konfigurasi staging e-office |
+| [docs/DOCKER.md](docs/DOCKER.md) | Kamera browser Mac dengan Docker: pratinjau, staging, dan uji produksi terisolasi tanpa absensi resmi |
 
 ## Uji kamera Mac dengan Docker
 

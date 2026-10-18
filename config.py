@@ -44,6 +44,9 @@ def validate_attendance_config(config: Mapping[str, object]) -> None:
     mode = config.get('ATTENDANCE_MODE', 'standalone')
     if mode not in ('standalone', 'eoffice'):
         raise ValueError('ATTENDANCE_MODE must be standalone or eoffice')
+    test_mode = config.get('EOFFICE_TEST_MODE', False)
+    if type(test_mode) is not bool or test_mode and mode != 'eoffice':
+        raise ValueError('EOFFICE_TEST_MODE requires a boolean and ATTENDANCE_MODE=eoffice')
     if mode == 'standalone':
         return
     base_url = config.get('EOFFICE_BASE_URL')
@@ -73,8 +76,16 @@ def validate_attendance_config(config: Mapping[str, object]) -> None:
         raise ValueError('EOFFICE_KEY_FILE is not a valid encryption key file') from exc
 
 
+def _eoffice_test_mode() -> bool:
+    value = os.getenv('EOFFICE_TEST_MODE', 'false').lower()
+    if value not in ('true', 'false'):
+        raise ValueError('EOFFICE_TEST_MODE must be true or false')
+    return value == 'true'
+
+
 class Config:
     ATTENDANCE_MODE = os.getenv('ATTENDANCE_MODE', 'standalone')
+    EOFFICE_TEST_MODE = _eoffice_test_mode()
     EOFFICE_BASE_URL = os.getenv('EOFFICE_BASE_URL', '')
     EOFFICE_DEVICE_TOKEN = os.getenv('EOFFICE_DEVICE_TOKEN', '')
     EOFFICE_AURAFACE_PATH = os.getenv('EOFFICE_AURAFACE_PATH', '')
