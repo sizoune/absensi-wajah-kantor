@@ -53,7 +53,12 @@ def main():
     signal.signal(signal.SIGINT, stop)
     try:
         if app.config['ATTENDANCE_MODE'] == 'eoffice' and not app.config.get('SETUP_REQUIRED', False):
-            app.extensions['browser_camera'].start_service()
+            if app.config.get('SETUP_MANAGED'):
+                with app.app_context():
+                    from services.setup_camera import activate_browser
+                    activate_browser()
+            else:
+                app.extensions['browser_camera'].start_service()
         server = create_http_server(app)
         logging.info('Browser kiosk listening on port 5000; mode=%s', app.config['ATTENDANCE_MODE'])
         server.run()

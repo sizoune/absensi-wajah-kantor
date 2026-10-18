@@ -320,3 +320,20 @@ test('test mode transport acknowledgement never displays a saved or official res
   assert.equal(ui.element('message').textContent, 'Menunggu sinkronisasi');
   ui.stop(); await flush();
 });
+
+test('camera selection uses the chosen device and stops the previous session before switching', async () => {
+  const selected = [];
+  const ui = setup({permission: async constraints => {
+    selected.push(constraints.video.deviceId.exact);
+    return ui.stream;
+  }});
+  ui.element('browser-camera-device').value = 'usb-camera';
+  await ui.start(); await flush();
+  assert.deepEqual(selected, ['usb-camera']);
+  ui.element('browser-camera-device').value = 'integrated-camera';
+  ui.element('browser-camera-device').fire('change'); await flush();
+  assert.equal(ui.track.stopped, true);
+  assert.equal(ui.calls.filter(call => call.url === '/stop').length, 1);
+  assert.match(ui.status(), /pilihan kamera berubah/i);
+  assert.equal(ui.element('browser-camera-start').disabled, false);
+});

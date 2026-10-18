@@ -1,0 +1,30 @@
+{% if config.CAMERA_SOURCE == 'browser' %}
+  {% with camera_preview=true %}{% include 'browser_camera.html' %}{% endwith %}
+  <script src="{{ url_for('static', filename='js/browser-camera.js') }}" defer></script>
+{% else %}
+  {% set cameras = native_camera_status() %}
+  <section id="setup-native-camera" aria-labelledby="native-camera-title"
+    data-check-url="{{ url_for('setup.camera_check') }}" data-csrf-token="{{ csrf_token() }}">
+    <h2 id="native-camera-title">Pemeriksaan kamera Windows/native</h2>
+    <p>Pratinjau tidak mencatat absensi dan tidak memerlukan enrollment wajah.</p>
+    <form method="post" action="{{ url_for('setup.camera_select') }}" id="native-camera-select" class="form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="native-camera-index">Kamera</label>
+      {% if cameras.devices is not none %}
+      <select id="native-camera-index" name="index" required>
+        {% for camera in cameras.devices %}<option value="{{ camera.index }}"{% if camera.index == cameras.selected %} selected{% endif %}>{{ camera.name }}</option>{% endfor %}
+      </select>
+      {% if not cameras.devices %}<p role="status">Kamera belum terdeteksi. Hubungkan kamera lalu muat ulang halaman.</p>{% endif %}
+      {% else %}
+      <p>Nama kamera belum dapat dibaca pada komputer ini. Pilih indeks kamera yang terpasang.</p>
+      <input id="native-camera-index" type="number" name="index" min="0" max="16" value="{{ cameras.selected }}" required>
+      {% endif %}
+      <button type="submit" class="btn">Simpan pilihan kamera</button>
+    </form>
+    <button id="native-camera-check" type="button" class="btn">Periksa dan lihat pratinjau</button>
+    <p id="native-camera-status" role="status" aria-live="polite">Kamera belum diperiksa pada halaman ini.</p>
+    <img id="native-camera-preview" alt="Pratinjau pemeriksaan kamera" hidden style="max-width:100%">
+    <noscript>Aktifkan JavaScript untuk menampilkan pratinjau kamera.</noscript>
+  </section>
+  <script src="{{ url_for('static', filename='js/setup-camera.js') }}" defer></script>
+{% endif %}

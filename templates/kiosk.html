@@ -22,21 +22,7 @@
     </section>
 
     {% if browser_camera_enabled %}
-    <section id="browser-camera" class="browser-camera" aria-labelledby="browser-camera-label"
-      data-csrf-token="{{ csrf_token() }}"
-      data-start-url="{{ url_for('kiosk.camera_start') }}"
-      data-challenge-url="{{ url_for('kiosk.camera_challenge') }}"
-      data-frame-url="{{ url_for('kiosk.camera_frame') }}"
-      data-stop-url="{{ url_for('kiosk.camera_stop') }}">
-      <h2 id="browser-camera-label">{% if config.ATTENDANCE_MODE == 'eoffice' and config.EOFFICE_TEST_MODE %}Gambar diproses untuk uji pengenalan{% elif config.ATTENDANCE_MODE == 'eoffice' %}Gambar diproses oleh layanan e-office{% else %}Uji pratinjau kamera — tidak mencatat absensi{% endif %}</h2>
-      <p id="browser-camera-status" role="status" aria-live="polite" aria-atomic="true">Kamera belum diaktifkan. Tekan Aktifkan kamera untuk memberi izin.</p>
-      <div class="browser-camera-controls">
-        <button id="browser-camera-start" type="button" aria-controls="browser-camera-video">Aktifkan kamera</button>
-        <button id="browser-camera-stop" type="button" aria-controls="browser-camera-video" disabled>Matikan kamera</button>
-      </div>
-      <video id="browser-camera-video" aria-label="Pratinjau kamera lokal" autoplay muted playsinline hidden></video>
-      <noscript>Aktifkan JavaScript di browser untuk menggunakan kamera.</noscript>
-    </section>
+    {% include 'browser_camera.html' %}
     {% endif %}
 
     <section id="panel" class="panel panel-idle" role="status" aria-live="polite" aria-atomic="true"{% if browser_camera_enabled and config.ATTENDANCE_MODE != 'eoffice' %} hidden{% endif %}>

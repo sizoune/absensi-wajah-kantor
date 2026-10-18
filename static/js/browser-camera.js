@@ -7,6 +7,7 @@
   var activate = document.getElementById("browser-camera-start");
   var deactivate = document.getElementById("browser-camera-stop");
   var status = document.getElementById("browser-camera-status");
+  var device = document.getElementById("browser-camera-device");
   var session = null;
   var pendingStart = null;
   var stopping = null;
@@ -24,6 +25,7 @@
       busy: "Kamera sedang digunakan tab atau layanan lain. Matikan kamera di sana, lalu coba lagi.",
       unsupported: "Browser ini tidak menyediakan akses kamera. Gunakan browser yang mendukung kamera di localhost.",
       unavailable: "Layanan kamera belum siap. Hubungi admin untuk memeriksa konfigurasi e-office dan model.",
+      not_ready: "Perangkat belum siap absensi. Admin dapat memeriksa model, enrollment, dan kamera melalui Kesiapan perangkat.",
       csrf: "Sesi halaman kedaluwarsa. Muat ulang halaman sebelum mengaktifkan kamera.",
       origin: "Buka halaman kamera melalui alamat localhost yang sama dengan server.",
       frame_too_large: "Gambar kamera terlalu besar. Turunkan resolusi kamera, lalu aktifkan lagi.",
@@ -131,13 +133,15 @@
         throw Object.assign(new Error(), {code: "unsupported"});
       }
       var stream = await navigator.mediaDevices.getUserMedia({audio: false, video: {
-        width: {ideal: 1280}, height: {ideal: 720}, frameRate: {ideal: 5, max: 5}
+        width: {ideal: 1280}, height: {ideal: 720}, frameRate: {ideal: 5, max: 5},
+        ...(device && device.value ? {deviceId: {exact: device.value}} : {})
       }});
       if (session !== current) {
         stream.getTracks().forEach(function (track) { track.stop(); });
         return;
       }
       current.stream = stream;
+      listDevices();
       stream.getTracks().forEach(function (track) {
         track.addEventListener("ended", function () {
           if (session === current) stop("Kamera terputus. Hubungkan kamera, lalu aktifkan lagi.");
@@ -172,9 +176,23 @@
   }
 
   activate.addEventListener("click", start);
+  async function listDevices() {
+    if (!device || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    try {
+      var selected = device.value;
+      var cameras = (await navigator.mediaDevices.enumerateDevices()).filter(function (item) { return item.kind === "videoinput"; });
+      device.replaceChildren(new Option("Kamera bawaan browser", ""));
+      cameras.forEach(function (item, index) {
+        device.add(new Option(item.label || "Kamera " + (index + 1), item.deviceId));
+      });
+      device.value = selected;
+    } catch (_) { /* The permission prompt remains the authoritative camera check. */ }
+  }
+  if (device) device.addEventListener("change", function () { stop("Pilihan kamera berubah. Aktifkan kamera untuk memeriksanya."); });
   deactivate.addEventListener("click", function () { stop(); });
   window.addEventListener("pagehide", function () { stop(null, true); });
   window.addEventListener("offline", function () { stop(errorText({}), true); });
   document.addEventListener("visibilitychange", function () { if (document.hidden) stop(null, true); });
   controls();
+  listDevices();
 })();
