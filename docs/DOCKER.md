@@ -146,8 +146,16 @@ token uji khusus dan path absolut model/keyring. Pertahankan
 `EOFFICE_BASE_URL=https://api-e-office.tabalongkab.go.id` dan isi
 `EOFFICE_PRODUCTION_ORIGIN_IP` dengan IP Tailscale origin TLS produksi yang
 diverifikasi operator. Overlay uji memetakan hanya hostname tersebut melalui
-`extra_hosts`; URL, nama sertifikat publik dan verifikasi TLS tetap sama. Jalur
+`extra_hosts`; URL dan verifikasi hostname TLS tetap sama. Jalur
 ini membutuhkan koneksi Tailscale ke origin dan router TLS khusus endpoint uji.
+Untuk sertifikat origin dari CA uji privat, operator wajib menyediakan
+`eoffice-test-ca-bundle.pem` dalam folder model eksternal yang dipasang read-only.
+Bundle berisi root sistem ditambah sertifikat CA uji publik; kunci privat CA/leaf
+tetap hanya di server. Overlay uji menetapkan standar
+`SSL_CERT_FILE=/run/models/eoffice-test-ca-bundle.pem`, yang dibaca SSLContext
+default Python. Sertifikat leaf harus valid untuk hostname produksi di atas;
+verifikasi sertifikat dan hostname tetap aktif. Default pratinjau dan overlay
+staging tidak menetapkan variabel CA ini.
 Placeholder IP pada contoh wajib diganti; IP langsung sebagai URL atau
 menonaktifkan verifikasi sertifikat bukan konfigurasi yang didukung:
 

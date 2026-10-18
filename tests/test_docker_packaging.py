@@ -112,6 +112,7 @@ def test_trial_wrapper_clears_ambient_settings_and_selects_test_queue_context(tm
     assert service['environment']['ATTENDANCE_MODE'] == 'eoffice'
     assert service['environment']['EOFFICE_TEST_MODE'] == 'true'
     assert service['environment']['LIVENESS_MODE'] == 'passive'
+    assert service['environment']['SSL_CERT_FILE'] == '/run/models/eoffice-test-ca-bundle.pem'
     assert service['environment']['EOFFICE_BASE_URL'] == 'https://api-e-office.tabalongkab.go.id'
     assert service['extra_hosts'] == ['api-e-office.tabalongkab.go.id=100.64.0.10']
     assert 'EOFFICE_PRODUCTION_ORIGIN_IP' not in service['environment']
@@ -223,6 +224,7 @@ def test_default_compose_ignores_ambient_integration_settings():
     assert 'SECRET_KEY' not in service['environment']
     assert 'DATABASE_URL' not in service['environment']
     assert not service.get('extra_hosts')
+    assert 'SSL_CERT_FILE' not in service['environment']
     assert service['ports'][0]['host_ip'] == '127.0.0.1'
     assert service['ports'][0]['target'] == 5000
     assert service['volumes'][0]['type'] == 'volume'
@@ -253,6 +255,7 @@ def test_integration_wrapper_uses_selected_file_over_ambient_settings(tmp_path):
     assert service['environment']['LIVENESS_MODE'] == 'passive'
     assert service['environment']['EOFFICE_BASE_URL'] == 'https://staging.example.invalid'
     assert not service.get('extra_hosts')
+    assert 'SSL_CERT_FILE' not in service['environment']
     assert service['environment']['EOFFICE_DEVICE_TOKEN'] == 'replace-with-authorized-staging-device-token'
     assets = [mount for mount in service['volumes'] if mount['type'] == 'bind']
     assert {mount['target'] for mount in assets} == {'/run/models', '/run/keys/eoffice-key.json'}
