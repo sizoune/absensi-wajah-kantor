@@ -1,9 +1,106 @@
-# Panduan instalasi — Sistem Absensi Wajah Diskominfo Tabalong
+# Memasang aplikasi eOffice pada Windows
 
-> **Integrasi e-office:** panduan standalone di bawah tidak menjadi prosedur enrollment/model/backup integrasi. Ikuti [EOFFICE.md](EOFFICE.md) untuk kunci dan antrean terpisah, migrasi server, recovery dan gate aktivasi. Enrollment ulang kios tidak diizinkan; penerimaan fisik masih NOTRUN.
+Gunakan Windows 10/11 x64, Microsoft Edge/browser modern, kamera USB, dan
+koneksi internet untuk unduhan resmi serta API eOffice. Instalasi baru memakai
+SQLite lokal; Python, Git, XAMPP, file `.env`, dan path teknis tidak perlu
+disiapkan operator. Bootstrap memakai **Windows PowerShell 5.1 64-bit** bawaan
+Windows, dengan skrip ASCII dan kebijakan eksekusi hanya pada proses pemasangan.
 
-Panduan memasang sistem di **komputer kios** (Windows 10/11) dari awal.
-Perkiraan waktu: 1–2 jam, belum termasuk pendaftaran wajah karyawan.
+1. Ekstrak ZIP rilis yang diberikan pengelola, lalu klik dua kali
+   **`scripts\pasang_windows.bat`**. Tunggu jendela pemasangan tetap terbuka.
+2. Bootstrap memilih folder privat `%LOCALAPPDATA%\AbsensiWajahKantor`,
+   menyiapkan CPython **3.11.17 x64** privat dan virtualenv, memasang dependensi
+   yang dikunci beserta pemeriksaan impor DLL, lalu menyiapkan penyimpanan dan
+   rahasia melalui bootstrap aplikasi yang sudah ada. Tidak mengubah PATH atau
+   mendaftarkan Python pada registri global.
+3. Jika runtime Visual C++ belum cukup baru, installer resmi Microsoft dapat
+   meminta **izin administrator/UAC**. Pembatalan, kegagalan, atau permintaan
+   restart menghentikan pemasangan. Bila diminta, restart Windows lalu jalankan
+   `pasang_windows.bat` kembali. Tidak ada restart paksa atau kelanjutan ke capture
+   setelah instalasi gagal.
+4. Peluncur membuka browser dan menampilkan **kode setup hanya pada jendela
+   lokalnya**. Salin ke formulir setup; kode tidak ada dalam URL, shortcut, atau
+   log rutin. Jangan mengalihkan keluaran peluncur ke file/log.
+5. Buat admin lokal, masukkan token perangkat dari admin server, lalu pilih SKPD
+   dan cakupan perangkat. Ikuti penyiapan model dan snapshot. Pilih nama kamera
+   yang benar dari daftar perangkat terdeteksi dan jalankan preview/pemeriksaan.
+   Preview tidak mencatat absensi dan tidak memerlukan kecocokan wajah.
+6. Selesaikan wizard. Snapshot valid yang kosong dapat menyelesaikan setup,
+   tetapi capture tetap ditahan sampai enrollment, model, kamera, izin integrasi,
+   dan waktu tepercaya siap. Model tidak tersedia/tidak cocok memerlukan sumber
+   distribusi resmi dari pengelola; jangan memakai bobot pengganti atau fallback
+   standalone. Tidak ada persetujuan aktivasi tambahan setelah seluruh syarat siap.
+
+Biarkan jendela peluncur terbuka selama aplikasi dipakai. **Ctrl+C** meminta
+penghentian HTTP, kamera, dan sinkronisasi dengan bersih; tunggu selesai sebelum
+backup atau reinstall. Jangan memaksa penghentian proses saat menulis/mengirim
+antrean. Server hanya mendengarkan `127.0.0.1:5000`. Port yang sedang dipakai
+aplikasi lain adalah kegagalan startup; respons dari server lain tidak dianggap
+berhasil.
+
+## Login Windows, restart, dan pemulihan
+
+Pemasangan berhasil membuat satu shortcut **Absensi Wajah Kantor.lnk** pada
+folder Startup pengguna saat ini. Shortcut menunjuk runtime privat dan peluncur
+yang sama, dengan folder kerja instalasi. Aplikasi dimulai **setelah pengguna
+login Windows**, sehingga kamera interaktif tersedia; bukan service sebelum
+login. Menjalankan installer lagi memperbarui shortcut yang sama.
+
+- Untuk membuka manual, gunakan `scripts\jalankan_aplikasi.bat` di folder
+  instalasi. Kunci peluncur mencegah dua pohon server/kamera dari peluncur aktif.
+  Native capture tetap memakai `jalankan_kios.bat` dengan retry 10 detik dan
+  penguncian kamera yang ada. Hold perubahan cakupan/kredensial tetap dihormati.
+- Untuk menonaktifkan startup, buka **Win+R → `shell:startup`** dan hapus shortcut
+  bernama di atas. Pada instalasi lama, hapus tiga shortcut manual ke
+  `jalankan_server.bat`, `jalankan_kios.bat`, dan `buka_kios.bat` agar tidak
+  menjalankan jalur lama bersamaan.
+- Reinstall memakai folder lama bila `.env`, `instance`, `.venv`, atau
+  `model_files` sudah ada di folder sumber. ZIP rilis baru juga dapat memperbarui
+  instalasi pada folder privat bawaan. Konfigurasi, admin, kunci, model valid,
+  backup, serta byte/UUID antrean tidak dihapus atau dibuat ulang. Path eksternal
+  yang tersimpan tetap dipakai. Tutup peluncur lama dahulu.
+- Unduhan/dependensi yang terputus dapat dilanjutkan dengan menjalankan installer
+  lagi. Virtualenv kompatibel dipakai kembali. Runtime lama yang bukan CPython
+  3.11.17+ x64 ditolak tanpa dihapus; pengelola perlu menyiapkan peningkatan runtime
+  terpisah dengan backup asli, bukan menghapus `.venv`, database, atau kunci.
+- Setelah setup selesai, peluncur tidak menerbitkan kode setup lagi. Password
+  admin dipulihkan melalui terminal lokal dengan
+  `.venv\Scripts\python.exe -m flask --app app reset-admin-password`; lihat
+  [pemulihan admin](KEAMANAN.md#pemulihan-password-admin). Rahasia/kunci yang hilang
+  atau rusak memerlukan cadangan asli; jangan membuat ulang untuk memaksa startup.
+
+Penyimpanan bawaan dibatasi ACL ke pengguna pemasang dan SYSTEM. Pertahankan
+ACL privat pada backup dan lokasi kunci/data eksternal yang dikelola sebelumnya.
+Ikuti [operasi eOffice](EOFFICE.md) untuk antrean/kunci integrasi; enrollment lokal
+ulang tidak diizinkan.
+
+## Verifikasi rilis dan batas lingkungan
+
+Bootstrap memverifikasi SHA256 arsip **uv 0.12.24** yang dipin; uv memverifikasi
+hash build CPython terpilih sebelum memasangnya. Runtime Visual C++ diambil dari
+[tautan resmi Microsoft](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)
+dan memerlukan tanda tangan Authenticode Microsoft yang valid sebelum dieksekusi.
+Versi terpasang dibandingkan dengan versi installer resmi; versi sama/lebih baru
+tidak meminta UAC berulang. Python tidak dipasang memakai installer PSF lama.
+Pembaruan pin runtime perlu pemeriksaan ulang hash/artifact resmi, resolusi wheel
+Windows, regresi, dan smoke test Windows bersih.
+
+Pengujian otomatis mencakup HTTP wizard/login, kode lokal, lock peluncur, kegagalan
+port, drain native, hold pengaturan, integritas reinstall/restart, checksum,
+publisher/UAC, shortcut, dan grammar PowerShell. Batas Windows/network/process
+tertentu dikendalikan pada macOS; ini **bukan bukti eksekusi installer Windows,
+ACL/UAC/Startup nyata, impor DLL Windows, atau kamera fisik**. Sebelum rilis
+operasional, uji Windows bersih dengan unduhan/runtime/DLL sebenarnya, pilih dan
+preview kamera USB nyata, selesaikan wizard, pulihkan password, restart/login,
+reinstall, serta bandingkan kunci dan byte/UUID antrean. Bobot deployment,
+kalibrasi/liveness, TLS/API berizin, dan penerimaan fisik tetap perlu validasi
+lapangan. Jangan melaporkan simulasi sebagai kelulusan hardware.
+
+## Referensi instalasi standalone lama
+
+Bagian berikut dipertahankan untuk instalasi MySQL/standalone yang sudah ada.
+Gunakan alur wizard di atas untuk perangkat eOffice baru; langkah keygen,
+enrollment, dan backup standalone tidak berlaku untuk antrean integrasi.
 
 ## 1. Perangkat
 
@@ -16,7 +113,8 @@ Perkiraan waktu: 1–2 jam, belum termasuk pendaftaran wajah karyawan.
 
 ## 2. Program yang dipasang
 
-1. **Python 3.11** (64-bit) dari python.org. Centang *Add python.exe to PATH*.
+1. **CPython 3.11.17+ x64** yang telah diverifikasi pengelola. Instalasi baru
+   menggunakan bootstrap privat di atas, tanpa perubahan PATH global.
 2. **XAMPP** (cukup komponen MySQL/MariaDB dan phpMyAdmin).
 3. **Git for Windows**.
 4. **Microsoft Edge** (sudah ada di Windows) untuk tampilan kios.
@@ -31,8 +129,8 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
-Jika PowerShell menolak menjalankan `Activate.ps1`, jalankan sekali:
-`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+Jika aktivasi PowerShell ditolak, gunakan `.venv\Scripts\python.exe -m pip`
+atau `.venv\Scripts\python.exe -m flask` langsung, tanpa mengubah kebijakan global.
 
 ## 4. Database
 
@@ -111,13 +209,11 @@ flask --app app camera-check --seconds 10
 pengembangan. Server hanya mendengarkan `127.0.0.1` sehingga halaman admin
 tidak bisa dibuka dari komputer lain di jaringan.
 
-### Menyala otomatis saat Windows menyala
+### Menyala otomatis saat login Windows
 
-1. Tekan **Win+R**, ketik `shell:startup`, Enter.
-2. Buat **shortcut** ke `jalankan_server.bat`, `jalankan_kios.bat`, dan
-   `buka_kios.bat` di folder tersebut.
-3. Jadwalkan `backup_harian.bat` (docs/BACKUP.md).
-4. Mulai ulang komputer dan pastikan ketiganya menyala.
+Gunakan satu peluncur dan shortcut dari bootstrap di atas, termasuk untuk
+instalasi lama yang kompatibel. Jadwal `backup_harian.bat` tetap terpisah
+(docs/BACKUP.md). Jangan menambahkan tiga shortcut server/kamera/browser lagi.
 
 ## 10. Pemeriksaan akhir
 

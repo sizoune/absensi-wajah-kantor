@@ -159,11 +159,13 @@ def test_recovery_preserves_setup_and_device_data_across_restart(tmp_path, compl
     if complete:
         assert client.get('/setup').status_code == 404
         assert restarted.test_cli_runner().invoke(args=['setup-code']).exit_code != 0
-        dashboard = client.get('/admin').get_data(as_text=True)
-        assert 'Halo, Admin Lama' in dashboard
-        assert 'Admin dibuat melalui CLI: legacy_admin' in dashboard
-        assert 'admin_password_reset' in dashboard
-        assert NEW_PASSWORD not in dashboard
+        readiness = client.get('/admin', follow_redirects=True)
+        assert readiness.status_code == 200
+        assert readiness.request.path == '/setup/camera/manage'
+        page = readiness.get_data(as_text=True)
+        assert 'Kesiapan perangkat' in page
+        assert '<span class="user-name">Admin Lama</span>' in page
+        assert NEW_PASSWORD not in page
     else:
         assert client.get('/admin').headers['Location'].endswith('/setup')
         assert setup_client.get('/setup/status').json == previous_status

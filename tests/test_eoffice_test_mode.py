@@ -11,7 +11,7 @@ from integration.clock import TrustedClock
 from integration.protocol import validate_snapshot, validate_terminal_response
 from integration.store import IntegrationStore, StoreIntegrityError
 from integration.sync import SyncWorker
-from kiosk.state import KioskState, public_view
+from kiosk.state import KioskState, admin_view, public_view
 from kiosk.worker import KioskWorker
 from recognition.detector import QualitySettings
 from recognition.liveness import LivenessSettings
@@ -243,16 +243,30 @@ def test_status_does_not_replay_recent_result_from_previous_mode(app, client, te
     assert view['online'] is False
 
 
-@pytest.mark.parametrize('test_mode,expected', [
-    (False, 'Sejak layanan dimulai: 7 hasil tersimpan.'),
-    (True, 'Uji sejak layanan dimulai: 7 hasil tersimpan.'),
+@pytest.mark.parametrize('test_mode,count_scope,result_label', [
+    (False, 'Sejak layanan dimulai', 'Berhasil masuk'),
+    (True, 'Uji sejak layanan dimulai', 'Uji tersimpan'),
 ])
-def test_dashboard_labels_saved_count_with_its_official_or_trial_scope(app, auth_client, test_mode, expected):
+def test_eoffice_admin_redirect_and_kiosk_status_preserve_official_or_trial_scope(
+        app, auth_client, test_mode, count_scope, result_label):
     app.config.update(ATTENDANCE_MODE='eoffice', EOFFICE_TEST_MODE=test_mode)
-    state = {'mode': 'eoffice', 'camera': 'ok', 'recorded': 7, 'employees': 1}
+    state = {'mode': 'eoffice', 'camera': 'ok', 'recorded': 7, 'employees': 1,
+        'message': {'at': time.time(), 'id': EVENT['event_id'],
+                    'status': 'test_recorded' if test_mode else 'check_in'}}
     if test_mode:
         state['purpose'] = 'camera_test'
     KioskState(app.config['KIOSK_STATE_FILE']).publish(state)
     response = auth_client.get('/admin')
-    assert response.status_code == 200
-    assert f'<p>{expected}</p>' in response.get_data(as_text=True)
+    assert response.status_code == 302
+    assert response.headers['Location'].endswith('/kiosk/')
+    page = auth_client.get('/admin', follow_redirects=True)
+    assert page.status_code == 200
+    assert page.request.path == '/kiosk/'
+    assert ('id="camera-test-banner"' in page.get_data(as_text=True)) == test_mode
+    view = auth_client.get('/kiosk/status').json
+    assert view['message']['text'] == result_label
+    assert (view.get('purpose') == 'camera_test') == test_mode
+    summary = admin_view(KioskState(app.config['KIOSK_STATE_FILE']).read())
+    assert summary['recorded_this_run'] == 7
+    assert summary['recorded_scope'] == count_scope
+    assert 'recorded_today' not in summary

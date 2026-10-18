@@ -17,9 +17,23 @@ class CameraLookupError(Exception):
 
 
 def _enumerate():
-    from pygrabber.dshow_graph import FilterGraph
+    import comtypes
 
-    return list(FilterGraph().get_input_devices())
+    # Waitress requests can enumerate cameras on different COM apartments.
+    comtypes.CoInitialize()
+    graph = None
+    cameras = None
+    try:
+        from pygrabber.dshow_graph import FilterGraph
+        graph = FilterGraph()
+        cameras = list(graph.get_input_devices())
+    except Exception:
+        # Leave the handler before teardown so its traceback releases the graph.
+        pass
+    finally:
+        graph = None
+        comtypes.CoUninitialize()
+    return cameras
 
 
 def list_cameras():
