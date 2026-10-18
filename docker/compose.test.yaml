@@ -1,4 +1,6 @@
 services:
   camera:
+    extra_hosts:
+      - "api-e-office.tabalongkab.go.id=${EOFFICE_PRODUCTION_ORIGIN_IP:?Isi IP Tailscale origin produksi di docker/compose.test.env}"
     environment:
       EOFFICE_TEST_MODE: "true"

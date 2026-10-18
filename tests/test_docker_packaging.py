@@ -81,7 +81,8 @@ def test_missing_secret_with_existing_test_queue_fails_without_regeneration(tmp_
     assert queue.read_bytes() == b'existing encrypted trial queue'
 
 
-def test_trial_wrapper_clears_ambient_settings_and_selects_test_queue_context(tmp_path):
+@pytest.mark.parametrize('origin_ip', [None, '100.64.0.10'])
+def test_trial_wrapper_clears_ambient_settings_and_selects_test_queue_context(tmp_path, origin_ip):
     if not shutil.which('docker'):
         pytest.skip('Docker Compose CLI is unavailable')
     project = tmp_path / 'camera trial'
@@ -89,17 +90,31 @@ def test_trial_wrapper_clears_ambient_settings_and_selects_test_queue_context(tm
     for name in ('compose.yaml', 'docker/compose.eoffice.yaml', 'docker/compose.test.yaml',
                  'docker/test-compose.sh'):
         shutil.copy2(ROOT / name, project / name)
-    shutil.copy2(ROOT / 'docker/compose.test.env.example', project / 'docker/compose.test.env')
+    selected = (ROOT / 'docker/compose.test.env.example').read_text()
+    if origin_ip is None:
+        selected = '\n'.join(line for line in selected.splitlines()
+                             if not line.startswith('EOFFICE_PRODUCTION_ORIGIN_IP='))
+    else:
+        selected = selected.replace('replace-with-private-tailscale-origin-ip', origin_ip)
+    (project / 'docker/compose.test.env').write_text(selected)
     environment = dict(os.environ, EOFFICE_TEST_MODE='false', ATTENDANCE_MODE='standalone',
         EOFFICE_BASE_URL='https://ambient.invalid', EOFFICE_DEVICE_TOKEN='ambient-token',
-        EOFFICE_HOST_MODEL_DIR='/ambient/models', EOFFICE_HOST_KEY_FILE='/ambient/key.json')
+        EOFFICE_HOST_MODEL_DIR='/ambient/models', EOFFICE_HOST_KEY_FILE='/ambient/key.json',
+        EOFFICE_PRODUCTION_ORIGIN_IP='100.64.0.99')
     result = subprocess.run([str(project / 'docker/test-compose.sh'), 'config', '--format', 'json'],
-                            cwd=tmp_path, env=environment, capture_output=True, text=True, check=True)
+                            cwd=tmp_path, env=environment, capture_output=True, text=True)
+    if origin_ip is None:
+        assert result.returncode != 0
+        assert 'EOFFICE_PRODUCTION_ORIGIN_IP' in result.stderr
+        return
+    result.check_returncode()
     service = json.loads(result.stdout)['services']['camera']
     assert service['environment']['ATTENDANCE_MODE'] == 'eoffice'
     assert service['environment']['EOFFICE_TEST_MODE'] == 'true'
     assert service['environment']['LIVENESS_MODE'] == 'passive'
-    assert service['environment']['EOFFICE_BASE_URL'] == 'https://production.example.invalid'
+    assert service['environment']['EOFFICE_BASE_URL'] == 'https://api-e-office.tabalongkab.go.id'
+    assert service['extra_hosts'] == ['api-e-office.tabalongkab.go.id=100.64.0.10']
+    assert 'EOFFICE_PRODUCTION_ORIGIN_IP' not in service['environment']
     assert service['environment']['EOFFICE_DEVICE_TOKEN'] == 'replace-with-dedicated-expiring-test-device-token'
     assert all(mount['source'].startswith('/absolute/') for mount in service['volumes'] if mount['type'] == 'bind')
 
@@ -207,6 +222,7 @@ def test_default_compose_ignores_ambient_integration_settings():
     assert 'EOFFICE_DEVICE_TOKEN' not in service['environment']
     assert 'SECRET_KEY' not in service['environment']
     assert 'DATABASE_URL' not in service['environment']
+    assert not service.get('extra_hosts')
     assert service['ports'][0]['host_ip'] == '127.0.0.1'
     assert service['ports'][0]['target'] == 5000
     assert service['volumes'][0]['type'] == 'volume'
@@ -236,6 +252,7 @@ def test_integration_wrapper_uses_selected_file_over_ambient_settings(tmp_path):
     assert service['environment']['EOFFICE_TEST_MODE'] == 'false'
     assert service['environment']['LIVENESS_MODE'] == 'passive'
     assert service['environment']['EOFFICE_BASE_URL'] == 'https://staging.example.invalid'
+    assert not service.get('extra_hosts')
     assert service['environment']['EOFFICE_DEVICE_TOKEN'] == 'replace-with-authorized-staging-device-token'
     assets = [mount for mount in service['volumes'] if mount['type'] == 'bind']
     assert {mount['target'] for mount in assets} == {'/run/models', '/run/keys/eoffice-key.json'}

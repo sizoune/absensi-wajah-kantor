@@ -142,7 +142,15 @@ resmi. Jangan gunakan token perangkat absensi resmi.
 Sediakan model terverifikasi yang sama seperti di atas dan keyring antrean uji
 baru di luar proyek. Jangan mengganti keyring antrean yang sudah ada. Buat file
 konfigurasi uji yang diabaikan Git/konteks build, lalu edit URL HTTPS produksi,
-token uji khusus dan path absolut model/keyring:
+token uji khusus dan path absolut model/keyring. Pertahankan
+`EOFFICE_BASE_URL=https://api-e-office.tabalongkab.go.id` dan isi
+`EOFFICE_PRODUCTION_ORIGIN_IP` dengan IP Tailscale origin TLS produksi yang
+diverifikasi operator. Overlay uji memetakan hanya hostname tersebut melalui
+`extra_hosts`; URL, nama sertifikat publik dan verifikasi TLS tetap sama. Jalur
+ini membutuhkan koneksi Tailscale ke origin dan router TLS khusus endpoint uji.
+Placeholder IP pada contoh wajib diganti; IP langsung sebagai URL atau
+menonaktifkan verifikasi sertifikat bukan konfigurasi yang didukung:
+
 
 ```sh
 cp -n docker/compose.test.env.example docker/compose.test.env
@@ -153,7 +161,8 @@ chmod 600 docker/compose.test.env
 
 Wrapper memakai overlay e-office ditambah `docker/compose.test.yaml`, menetapkan
 `ATTENDANCE_MODE=eoffice`, `EOFFICE_TEST_MODE=true`, `LIVENESS_MODE=passive`, dan
-menghapus lima variabel e-office di atas dari shell sebelum membaca
+menghapus lima variabel e-office di atas serta `EOFFICE_PRODUCTION_ORIGIN_IP`
+dari shell sebelum membaca
 `docker/compose.test.env`. Compose default tetap pratinjau dan wrapper staging
 tetap memakai mode resmi dengan `EOFFICE_TEST_MODE=false`.
 
