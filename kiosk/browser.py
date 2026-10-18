@@ -229,7 +229,7 @@ class BrowserCamera:
     def _frame_guard(self):
         with self._lock:
             self._check_capture(self._capture)
-            yield
+            yield lambda: self._check_capture(self._capture)
 
     def _reset_worker(self, worker):
         if worker is not None:

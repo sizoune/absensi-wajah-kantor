@@ -3,6 +3,7 @@
 import json
 import secrets
 import sqlite3
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
@@ -91,7 +92,7 @@ class IntegrationStore:
         except (InvalidTag, ValueError, TypeError) as exc:
             raise StoreIntegrityError('Integration state authentication failed; check key and database') from exc
 
-    def enqueue(self, event_bytes: bytes) -> None:
+    def enqueue(self, event_bytes: bytes, *, validate_capture: Callable[[], None] | None = None) -> None:
         if type(event_bytes) is not bytes:
             raise ValueError('Expected immutable UTF-8 event bytes')
         try:
@@ -104,13 +105,17 @@ class IntegrationStore:
         identity = f'event:{event_id}'
         with self._lock, self._db:
             self._db.execute('BEGIN IMMEDIATE')
+            if validate_capture is not None:
+                validate_capture()
             row = self._db.execute('SELECT body FROM events WHERE event_id=?', (event_id,)).fetchone()
             if row is not None:
                 if self._decrypt(row[0], identity) != event_bytes:
                     raise ValueError('Event UUID already has different bytes')
-                return
-            self._db.execute('INSERT INTO events(event_id,body) VALUES (?,?)',
-                             (event_id, self._encrypt(event_bytes, identity)))
+            else:
+                self._db.execute('INSERT INTO events(event_id,body) VALUES (?,?)',
+                                 (event_id, self._encrypt(event_bytes, identity)))
+            if validate_capture is not None:
+                validate_capture()
 
     def _validate_stored_response(self, event_id: str, response: bytes) -> None:
         try:

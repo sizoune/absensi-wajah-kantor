@@ -435,3 +435,17 @@ def test_two_instances_preserve_first_terminal_response_and_original_bytes(tmp_p
     reopened = IntegrationStore(path, KEY)
     assert reopened.pending() == []
     reopened.close()
+
+
+def test_enqueue_validation_failure_rolls_back_insert(store):
+    class ExpiredCapture(RuntimeError):
+        pass
+    def validate():
+        # The second validation must see the inserted row inside its transaction.
+        if store.pending():
+            raise ExpiredCapture()
+    with pytest.raises(ExpiredCapture):
+        store.enqueue(BODY, validate_capture=validate)
+    assert store.pending() == []
+    store.enqueue(BODY)
+    assert store.pending()[0].body == BODY

@@ -228,7 +228,7 @@ class KioskWorker:
             self._say_eoffice('operator')
             self.gallery = None
 
-    def _enqueue_eoffice(self, event: EofficeEvent) -> str | None:
+    def _enqueue_eoffice(self, event: EofficeEvent, *, validate_capture=None) -> str | None:
         if event.in_cooldown:
             self._say_eoffice('uncertain', event.first_name)
             return None
@@ -256,7 +256,11 @@ class KioskWorker:
                         enrollment_revision=event.enrollment_revision, verification_type=event.verification_type,
                         embedding_version=event.embedding_version, evidence={'score': event.score,
                         'second_score': event.second_score, 'quality_ok': True, 'live': True, 'samples': event.samples}, **proof)
-            self.integration_store.enqueue(json.dumps(body, allow_nan=False, separators=(',', ':')).encode('utf-8'))
+            payload = json.dumps(body, allow_nan=False, separators=(',', ':')).encode('utf-8')
+            if validate_capture is None:
+                self.integration_store.enqueue(payload)
+            else:
+                self.integration_store.enqueue(payload, validate_capture=validate_capture)
             self._integration_storage_error = False
             self._queued_tracks.add(event.track_id)
             self._current_event = event_id
@@ -293,9 +297,9 @@ class KioskWorker:
                                                  self.quality, self.tracker, now)
         self._queued_tracks.intersection_update(t.id for t in self.tracker.tracks)
         # Browser capture may expire during inference; guard and enqueue share its session lock.
-        with self.frame_guard() if self.frame_guard else nullcontext():
+        with self.frame_guard() if self.frame_guard else nullcontext() as validate_capture:
             for event in events:
-                self.handle_event(event)
+                self.handle_event(event, validate_capture=validate_capture)
         if tracks and not events and (any(t.confirmed_id is None for t in tracks)
                 or any(t.id in gate.rejected_tracks for t in tracks for gate in self.tracker.gates.values())):
             self._say_eoffice('uncertain')
@@ -339,10 +343,10 @@ class KioskWorker:
 
     # ------------------------------------------------------------ satu langkah
 
-    def handle_event(self, event):
+    def handle_event(self, event, *, validate_capture=None):
         """Identitas dipastikan pelacak -> minta keputusan absensi."""
         if self.eoffice:
-            return self._enqueue_eoffice(event)
+            return self._enqueue_eoffice(event, validate_capture=validate_capture)
         if event.in_cooldown:
             return None
         decision = att.record(event.employee_id, score=event.score,

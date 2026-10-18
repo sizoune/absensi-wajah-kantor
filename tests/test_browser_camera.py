@@ -350,3 +350,46 @@ def test_untrusted_non_ascii_headers_fail_closed(browser_app, field):
     capture = challenge(client, start(client))
     response = frame(client, dict(capture, **{field: 'é'}))
     assert response.status_code == (403 if field == 'X-Camera-Owner' else 410)
+
+
+@pytest.mark.parametrize('pause', ['write_lock', 'encryption'])
+def test_expiry_during_queue_transaction_rolls_back_event(browser_app, tmp_path, monkeypatch, pause):
+    import sqlite3
+    runtime, now, scene, pending, resources, _ = eoffice_runtime(browser_app, tmp_path, monkeypatch)
+    client = browser_app.test_client()
+    auth = start(client)
+    data = cv2.imencode('.jpg', scene[-1])[1].tobytes()
+    for stamp in (10.1, 10.2):
+        now[0] = stamp
+        assert frame(client, challenge(client, auth), data=data).status_code == 200
+    frame_store, _ = resources[0]
+    now[0] = 10.3
+    capture = challenge(client, auth)
+    if pause == 'write_lock':
+        entered, result = threading.Event(), []
+        blocker = sqlite3.connect(tmp_path / 'integration.sqlite3')
+        blocker.execute('BEGIN IMMEDIATE')
+        frame_store._db.set_trace_callback(lambda sql: entered.set() if sql == 'BEGIN IMMEDIATE' else None)
+        request = threading.Thread(target=lambda: result.append(frame(client, capture, data=data)))
+        request.start()
+        try:
+            assert entered.wait(2), 'capture never reached the SQLite write-lock wait'
+            now[0] += 3.1
+        finally:
+            blocker.rollback()
+            blocker.close()
+            request.join(3)
+            frame_store._db.set_trace_callback(None)
+        assert not request.is_alive()
+        response, = result
+    else:
+        original = frame_store._encrypt
+        def slow_encrypt(*args):
+            encrypted = original(*args)
+            now[0] += 3.1
+            return encrypted
+        monkeypatch.setattr(frame_store, '_encrypt', slow_encrypt)
+        response = frame(client, capture, data=data)
+    assert response.status_code == 410
+    assert response.json == {'ok': False, 'error': 'stale'}
+    assert pending() == []
