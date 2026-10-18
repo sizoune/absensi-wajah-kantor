@@ -105,16 +105,18 @@ class SyncWorker:
             raise ValueError('Queued event requires timezone-aware occurrence')
         return occurred, entry.event_id
 
-    def run_once(self) -> SyncStatus:
+    def run_once(self, *, require_fresh_snapshot: bool = False) -> SyncStatus:
+        """Repair can require a verified refresh before sending retained event bytes."""
         with self._lock:
             status = replace(self.status, events_sent=0, gallery_changed=False, event_id=None, response=None)
             if status.auth == 'paused' or self._stop.is_set():
                 return replace(status, retry_after=60.0)
             status = replace(status, storage='ok')
             now = self._monotonic()
-            if now >= self._next_snapshot:
+            if require_fresh_snapshot or now >= self._next_snapshot:
                 status = self._refresh(status)
-            if status.auth == 'paused' or self._stop.is_set():
+            if (status.auth == 'paused' or self._stop.is_set()
+                    or require_fresh_snapshot and status.clock != 'ok'):
                 status = replace(status, retry_after=60.0)
                 self._publish(status)
                 return status

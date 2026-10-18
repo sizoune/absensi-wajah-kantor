@@ -26,9 +26,10 @@ def _store_path():
     return Path(current_app.instance_path) / ('eoffice-test.sqlite3' if current_app.config.get('EOFFICE_TEST_MODE') else 'eoffice.sqlite3')
 
 
-def _store():
+def _store(*, initialize=True):
     active, keys = load_keyring(current_app.config['EOFFICE_KEY_FILE'])
-    return IntegrationStore(_store_path(), keys[active], test_mode=current_app.config.get('EOFFICE_TEST_MODE', False))
+    return IntegrationStore(_store_path(), keys[active], test_mode=current_app.config.get('EOFFICE_TEST_MODE', False),
+                            initialize=initialize)
 
 
 def connect_device(token, base_url):
@@ -137,7 +138,7 @@ def organization_status():
                and config.get('EOFFICE_SNAPSHOT_CONTEXT') == _snapshot_context())
     if current and _store_path().exists():
         try:
-            store = _store()
+            store = _store(initialize=False)
             try:
                 snapshot = store.load_snapshot()
             finally:

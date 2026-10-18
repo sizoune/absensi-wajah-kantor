@@ -37,7 +37,7 @@ def change_scope(skpd_id, scope_type, subunit_id=None):
             if not organization._store_path().is_file():
                 raise ScopeChangeError('storage_unavailable',
                                        'Penyimpanan lama tidak tersedia. Pulihkan data dan kunci asli sebelum melanjutkan.', 503)
-            store = organization._store()
+            store = organization._store(initialize=False)
             try:
                 if store.pending():
                     if not fence.was_paused or (fence.reason == 'scope' and not load_settings().get('SCOPE_CHANGE')):

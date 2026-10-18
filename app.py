@@ -55,6 +55,7 @@ from routes.api import bp as api_bp, register_api_error_handlers
 from routes.setup import bp as setup_bp
 import routes.setup_organization  # Register organization steps on the setup blueprint.
 import routes.settings_scope  # Completed setup requires local admin settings access.
+import routes.settings_token  # Device token replacement requires the same active local admin.
 import routes.setup_models  # Register protected model preparation routes.
 import routes.setup_camera  # Camera/readiness repair uses the same setup/admin boundary.
 from maintenance.api_cli import register_api_commands

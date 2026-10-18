@@ -5,9 +5,9 @@
     'storage': 'Penyimpanan atau kunci perlu diperiksa; pulihkan data asli.', 'snapshot': 'Snapshot awal yang valid belum tersedia.',
     'models': 'Model belum tersedia atau belum cocok dengan enrollment.', 'camera': 'Kamera belum lolos pemeriksaan.',
     'enrollment': 'Enrollment masih kosong; perangkat belum siap mengenali wajah.', 'liveness': 'Anti-foto pasif belum siap.',
-    'access': 'Akses perangkat menunggu sinkronisasi aktif.', 'clock': 'Waktu capture menunggu pembaruan server terautentikasi.',
+    'access': 'Akses perangkat belum terverifikasi. Jika token dicabut atau kedaluwarsa, minta token pengganti perangkat yang sama dan pulihkan melalui admin lokal.', 'clock': 'Waktu capture menunggu pembaruan server terautentikasi.',
     'runtime_storage': 'Penyimpanan integrasi menunggu pemeriksaan layanan.', 'capture': 'Layanan kamera belum aktif.',
-    'capture_hold': 'Capture ditahan selama pemulihan pengaturan. Buka pengaturan cakupan lalu coba lagi.'} %}
+    'capture_hold': 'Capture ditahan selama pemulihan pengaturan. Periksa pemulihan token atau perubahan cakupan yang tertunda.'} %}
   <ul>{% for reason, text in reasons.items() %}<li data-readiness-reason="{{ reason }}"{% if reason not in status.blocked %} hidden{% endif %}>{{ text }}</li>{% endfor %}</ul>
   {% if not status.complete %}
   <form method="post" action="{{ url_for('setup.finish') }}">
