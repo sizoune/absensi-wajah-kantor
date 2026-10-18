@@ -18,7 +18,7 @@
       var finish = document.getElementById("setup-finish");
       if (finish) finish.disabled = !status.can_finish;
     } catch (_) { /* A failed status refresh never authorizes capture. */ }
-    setTimeout(refresh, 3000);
+    finally { setTimeout(refresh, 3000); }
   }
   refresh();
 })();

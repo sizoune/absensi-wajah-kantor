@@ -113,6 +113,7 @@ class BrowserCamera:
         self._fatal = False
         self._capture = None
         self._sync = None
+        self._last_frame_at = None
         atexit.register(self.close)
 
     @property
@@ -124,8 +125,16 @@ class BrowserCamera:
     def closed(self):
         return self._shutdown.is_set() or self._fatal
 
+    @property
+    def capturing(self):
+        with self._lock:
+            self._expire()
+            return (self._owner is not None and not self.closed and self._last_frame_at is not None
+                    and 0 <= self.clock() - self._last_frame_at <= TRACK_GAP_SECONDS)
+
     def _release(self):
         self._owner = self._cookie = self._origin = self._challenge = None
+        self._last_frame_at = None
         self._generation += 1
 
     def _expire(self):
@@ -284,7 +293,7 @@ class BrowserCamera:
                         generation, last_capture = current_generation, None
                     if worker is not None:
                         worker.reload_templates()
-                        worker.camera_status = 'ok' if active else 'stopped'
+                        worker.camera_status = 'ok' if self.capturing else 'stopped'
                         worker.publish()
                     elif self.clock() - last_publish >= .5:
                         state.publish({'camera': 'ok' if active else 'stopped', 'message': None,
@@ -308,16 +317,22 @@ class BrowserCamera:
                         if worker is not None:
                             worker.reload_templates()
                             worker.step(frame, captured_at=capture.acquired_at)
-                            worker.publish(force=True)
                         with self._frame_guard():
-                            pass
+                            self._last_frame_at = self.clock()
+                        if worker is not None:
+                            worker.camera_status = 'ok'
+                            worker.publish(force=True)
                     except CameraRequestError as exc:
                         capture.error = exc
+                        with self._lock:
+                            self._last_frame_at = None
                         self._reset_worker(worker)
                         last_capture = None
                     except Exception:
                         self.app.logger.exception('Browser camera frame failed')
                         capture.error = CameraRequestError('unavailable', 503)
+                        with self._lock:
+                            self._last_frame_at = None
                         self._reset_worker(worker)
                         last_capture = None
                     finally:

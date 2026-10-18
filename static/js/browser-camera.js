@@ -8,6 +8,8 @@
   var deactivate = document.getElementById("browser-camera-stop");
   var status = document.getElementById("browser-camera-status");
   var device = document.getElementById("browser-camera-device");
+  var preferredDevice = "";
+  try { preferredDevice = localStorage.getItem("eoffice-camera-device") || ""; } catch (_) {}
   var session = null;
   var pendingStart = null;
   var stopping = null;
@@ -22,6 +24,7 @@
       NotAllowedError: "Izin kamera ditolak. Izinkan kamera di pengaturan browser, lalu aktifkan lagi.",
       NotFoundError: "Kamera tidak ditemukan. Hubungkan kamera, lalu aktifkan lagi.",
       NotReadableError: "Kamera sedang digunakan aplikasi lain. Tutup aplikasi tersebut, lalu aktifkan lagi.",
+      OverconstrainedError: "Kamera yang dipilih tidak tersedia. Pilih kamera lain lalu aktifkan lagi.",
       busy: "Kamera sedang digunakan tab atau layanan lain. Matikan kamera di sana, lalu coba lagi.",
       unsupported: "Browser ini tidak menyediakan akses kamera. Gunakan browser yang mendukung kamera di localhost.",
       unavailable: "Layanan kamera belum siap. Hubungi admin untuk memeriksa konfigurasi e-office dan model.",
@@ -134,7 +137,7 @@
       }
       var stream = await navigator.mediaDevices.getUserMedia({audio: false, video: {
         width: {ideal: 1280}, height: {ideal: 720}, frameRate: {ideal: 5, max: 5},
-        ...(device && device.value ? {deviceId: {exact: device.value}} : {})
+        ...(device && (device.value || preferredDevice) ? {deviceId: {exact: device.value || preferredDevice}} : {})
       }});
       if (session !== current) {
         stream.getTracks().forEach(function (track) { track.stop(); });
@@ -171,6 +174,7 @@
       current.canvas = document.createElement("canvas");
       frame(current);
     } catch (error) {
+      if (error.name === "OverconstrainedError") saveDevice("");
       if (session === current) stop(errorText(error));
     }
   }
@@ -179,16 +183,28 @@
   async function listDevices() {
     if (!device || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
     try {
-      var selected = device.value;
       var cameras = (await navigator.mediaDevices.enumerateDevices()).filter(function (item) { return item.kind === "videoinput"; });
+      var selected = device.value || preferredDevice;
       device.replaceChildren(new Option("Kamera bawaan browser", ""));
       cameras.forEach(function (item, index) {
         device.add(new Option(item.label || "Kamera " + (index + 1), item.deviceId));
       });
-      device.value = selected;
+      if (selected && !cameras.some(function (item) { return item.deviceId === selected; })) {
+        if (cameras.some(function (item) { return item.deviceId; })) saveDevice("");
+        else device.add(new Option("Kamera tersimpan", selected));
+      }
+      device.value = preferredDevice;
     } catch (_) { /* The permission prompt remains the authoritative camera check. */ }
   }
-  if (device) device.addEventListener("change", function () { stop("Pilihan kamera berubah. Aktifkan kamera untuk memeriksanya."); });
+  function saveDevice(value) {
+    preferredDevice = value;
+    if (device) device.value = value;
+    try { localStorage.setItem("eoffice-camera-device", value); } catch (_) {}
+  }
+  if (device) device.addEventListener("change", function () {
+    saveDevice(device.value);
+    stop("Pilihan kamera berubah. Aktifkan kamera untuk memeriksanya.");
+  });
   deactivate.addEventListener("click", function () { stop(); });
   window.addEventListener("pagehide", function () { stop(null, true); });
   window.addEventListener("offline", function () { stop(errorText({}), true); });

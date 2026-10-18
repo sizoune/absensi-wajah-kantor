@@ -2,6 +2,14 @@
 
 **Status: belum diterima untuk aktivasi resmi.** Integrasi hanya masuk pagi dan pulang. Enrollment berasal dari e-office untuk pegawai Diskominfo aktif yang diizinkan; tidak ada enrollment ulang, sesi istirahat/event, atau perbandingan vektor beda model. Catatan sah yang commit pertama tetap berlaku. Lihat [QA penerimaan](qa/2026-10-14-eoffice-camera-acceptance.md) sebelum menyetujui penggunaan resmi.
 
+## Setup pertama dan kesiapan kamera
+
+Wizard `/setup` memakai kode lokal sekali pakai, admin lokal, token perangkat, cakupan yang disetujui server, dan snapshot terenkripsi. Instalasi baru menyiapkan anti-foto pasif otomatis. Snapshot awal valid yang kosong boleh menyelesaikan setup; unduhan snapshot gagal tidak boleh. Model atau kamera yang belum siap tetap dapat diperbaiki setelah login admin melalui **Kesiapan perangkat**. Setelah selesai, kode dan akses setup pertama ditutup.
+
+Pratinjau Windows/native menyediakan daftar kamera dan gambar pemeriksaan; pratinjau browser memakai izin kamera serta kepemilikan satu sesi yang sudah ada. Keduanya tidak mencatat absensi dan tidak memerlukan kecocokan wajah. Mengganti kamera native membatalkan hasil pemeriksaan sebelumnya. Pilihan kamera browser disimpan pada browser dan alamat asal yang sama; kamera yang hilang dapat dipilih ulang.
+
+Tidak ada persetujuan aktivasi tambahan pada wizard. Peluncur native yang sudah berjalan mencoba `kiosk-run` lagi setelah gagal; pemeriksaan model, kamera, akses, waktu server baru, penyimpanan, serta enrollment harus lolos sebelum perangkat kamera dibuka. Snapshot kosong dapat diperbarui melalui sinkronisasi pada percobaan berikutnya. Pada browser, sinkronisasi berjalan tanpa kepemilikan kamera setelah model siap, termasuk saat enrollment masih kosong. Browser harus tetap terbuka dan izin kamera diberikan. Penyelesaian setup menghentikan pratinjau dengan bersih; kios meminta kepemilikan baru. Status siap memerlukan frame operasional yang masih baru, model kompatibel, enrollment tersedia, serta akses dan clock aktif. Bobot, clock, liveness, token uji, dan antrean tetap mengikuti validasi integrasi yang ada; pengujian fisik dan deployment tetap perlu dilakukan.
+
 ## Persiapan dan model
 
 Ikuti `docs/kiosk/operations.md` di repo API untuk audit skema, urutan migrasi kiosk lalu sidecar, barrier revision/coverage, clean-day/remediasi skeleton legacy, ID instansi terverifikasi, TLS, NTP dan credential. Skema/ID dari fixture bukan konfigurasi produksi. Uji fisik boleh memakai e-office staging berizin dalam dua mode yang sudah ada (`standalone` dan `eoffice`); tidak ada mode dry-run tambahan.

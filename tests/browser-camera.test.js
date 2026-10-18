@@ -23,7 +23,8 @@ function setup(options = {}) {
   const stream = target({getTracks: () => [track]});
   const elements = new Map();
   const element = id => {
-    if (!elements.has(id)) elements.set(id, target({hidden: false, disabled: false, textContent: '', dataset: {}}));
+    if (!elements.has(id)) elements.set(id, target({hidden: false, disabled: false, textContent: '', dataset: {}, value: '',
+      add() {}, replaceChildren() {}}));
     return elements.get(id);
   };
   const root = element('browser-camera');
@@ -57,12 +58,14 @@ function setup(options = {}) {
   }
   const context = {
     document, window, fetch, Blob, AbortController,
+    localStorage: options.storage,
+    Option: class Option { constructor(label, value) { this.label = label; this.value = value; } },
     navigator: {mediaDevices: options.unsupported ? undefined : {getUserMedia(constraints) {
       permissionCalls++; order.push('permission');
       assert.equal(constraints.audio, false);
       assert.equal(constraints.video.frameRate.max, 5);
       return options.permission ? options.permission(constraints) : Promise.resolve(stream);
-    }}},
+    }, enumerateDevices: options.devices}},
     setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, {callback, delay}); return id; },
     clearTimeout(id) { timers.delete(id); },
   };
@@ -336,4 +339,35 @@ test('camera selection uses the chosen device and stops the previous session bef
   assert.equal(ui.calls.filter(call => call.url === '/stop').length, 1);
   assert.match(ui.status(), /pilihan kamera berubah/i);
   assert.equal(ui.element('browser-camera-start').disabled, false);
+});
+
+test('setup camera preference survives kiosk navigation and unavailable devices permit a new choice', async () => {
+  let saved = '';
+  const storage = {getItem: () => saved, setItem: (key, value) => { saved = value; }};
+  const devices = async () => [{kind: 'videoinput', deviceId: 'usb', label: 'USB camera'},
+    {kind: 'videoinput', deviceId: 'integrated', label: 'Integrated camera'}];
+  const first = setup({storage, devices}); await flush();
+  first.element('browser-camera-device').value = 'usb';
+  first.element('browser-camera-device').fire('change');
+  assert.equal(saved, 'usb');
+  const next = setup({storage, devices, permission: constraints => {
+    assert.equal(constraints.video.deviceId.exact, 'usb');
+    return Promise.resolve(next.stream);
+  }}); await flush();
+  assert.equal(next.element('browser-camera-device').value, 'usb');
+  await next.start(); await flush(); next.stop(); await flush();
+  const absent = setup({storage, devices: async () => [{kind: 'videoinput', deviceId: 'integrated'}]});
+  await flush();
+  assert.equal(absent.element('browser-camera-device').value, '');
+  assert.equal(saved, '');
+});
+
+test('a pending camera enumeration cannot overwrite the latest operator selection', async () => {
+  const pending = deferred();
+  const ui = setup({devices: () => pending.promise});
+  ui.element('browser-camera-device').value = 'usb';
+  ui.element('browser-camera-device').fire('change');
+  pending.resolve([{kind: 'videoinput', deviceId: 'usb'}, {kind: 'videoinput', deviceId: 'integrated'}]);
+  await flush();
+  assert.equal(ui.element('browser-camera-device').value, 'usb');
 });

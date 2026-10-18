@@ -71,3 +71,21 @@ test('readiness refresh reconciles completed models and never presents an unanch
   assert.equal(title.textContent, 'Siap absensi');
   assert.ok(reasons.every(item => item.hidden));
 });
+
+test('readiness retries a failed HTTP poll and recovers on the next response', async () => {
+  const timers = [], title = element();
+  const root = element({dataset: {statusUrl: '/setup/readiness'}, querySelectorAll: () => []});
+  let requests = 0;
+  vm.runInNewContext(readFileSync('static/js/setup-readiness.js', 'utf8'), {
+    document: {getElementById: id => id === 'setup-readiness' ? root : id === 'readiness-title' ? title : null,
+      querySelectorAll: () => []},
+    fetch: async () => ({ok: ++requests > 1,
+      json: async () => ({complete: true, ready: true, blocked: [], pending: []})}),
+    setTimeout: callback => timers.push(callback),
+  });
+  await flush();
+  assert.equal(timers.length, 1);
+  timers.shift()(); await flush();
+  assert.equal(requests, 2);
+  assert.equal(title.textContent, 'Siap absensi');
+});

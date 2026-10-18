@@ -8,7 +8,7 @@ import numpy as np
 
 import pytest
 
-from test_setup import csrf
+from test_setup import csrf, installation
 from test_setup_organization import connect_and_select, post, wizard
 from test_eoffice_sync import SNAPSHOT
 from test_browser_camera import jpeg
@@ -18,6 +18,11 @@ from test_setup_models import DIGEST, model_sources
 def finish(client):
     return client.post('/setup/finish', data={'csrf_token': csrf(client)},
                        headers={'Accept': 'application/json'})
+
+
+def test_new_eoffice_setup_prepares_required_passive_liveness_automatically(tmp_path):
+    app = installation(tmp_path, LIVENESS_MODE='passive+challenge')
+    assert app.config['LIVENESS_MODE'] == 'passive'
 
 
 def test_valid_empty_snapshot_finishes_setup_without_camera_or_models(wizard, tmp_path):
@@ -38,6 +43,17 @@ def test_valid_empty_snapshot_finishes_setup_without_camera_or_models(wizard, tm
     assert client.get('/setup/camera/manage').status_code == 200
     assert (tmp_path / 'biometric_keys.json').read_bytes() == key
     assert app.extensions['browser_camera']._thread is None
+    from app import create_app
+    restarted = create_app('testing', overrides={
+        'FIRST_SETUP_ENABLED': True, 'ATTENDANCE_MODE': 'eoffice', 'SECRET_KEY': None,
+        'SQLALCHEMY_DATABASE_URI': f'sqlite:///{tmp_path}/app.sqlite3',
+        'SQLALCHEMY_ENGINE_OPTIONS': {}, 'WTF_CSRF_ENABLED': True,
+    }, instance_path=str(tmp_path))
+    assert restarted.test_client().get('/setup').status_code == 404
+    assert restarted.config['SETUP_MANAGED'] is True
+    held = restarted.test_cli_runner().invoke(args=['kiosk-run', '--no-preview'])
+    assert held.exit_code != 0 and 'belum siap' in held.output
+    assert (tmp_path / 'biometric_keys.json').read_bytes() == key
 
 
 def camera_headers(client):
@@ -195,6 +211,12 @@ def test_ready_browser_drains_preview_and_uses_a_fresh_authenticated_clock(
         started = client.post('/kiosk/camera/start', headers=auth)
         assert started.status_code == 200
         assert started.json['mode'] == 'eoffice'
+        assert client.get('/setup/readiness').json['ready'] is False
+        auth['X-Camera-Owner'] = started.json['owner']
+        challenge = client.post('/kiosk/camera/challenge', headers=auth)
+        assert client.post('/kiosk/camera/frame', headers={
+            **auth, 'X-Camera-Challenge': challenge.json['challenge']},
+            data=jpeg(), content_type='image/jpeg').status_code == 200
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
             status = client.get('/setup/readiness').json
@@ -204,6 +226,10 @@ def test_ready_browser_drains_preview_and_uses_a_fresh_authenticated_clock(
         assert status['ready'] is True, status['blocked']
         assert sum('/snapshot' in call.full_url for call in calls) > snapshots_before_finish
         assert not any('/events' in call.full_url for call in calls)
+        assert client.post('/kiosk/camera/stop', headers=auth).status_code == 200
+        assert client.get('/setup/readiness').json['ready'] is False
+        assert client.post('/kiosk/camera/start', headers=camera_headers(client)).status_code == 200
+        assert client.get('/setup/readiness').json['ready'] is False
     finally:
         app.extensions['browser_camera'].close()
 
@@ -242,6 +268,34 @@ def test_dynamic_model_files_and_metadata_override_stale_progress(wizard, tmp_pa
     assert status['models']['compatible'] is False
     assert status['can_finish'] is True
     assert finish(client).json['ready'] is False
+
+
+def test_readiness_poll_reuses_unchanged_model_verification_and_rechecks_changed_files(
+        wizard, tmp_path, model_sources, monkeypatch):
+    import builtins
+    from pathlib import Path
+    app, client, replies, _ = wizard
+    snapshot = copy.deepcopy(SNAPSHOT)
+    for model in snapshot['models'].values():
+        model['weights_sha256'] = DIGEST
+    replies['/api/kiosk/snapshot'] = snapshot
+    connect_and_select(client)
+    assert prepare_models(app, client, model_sources).json['ready'] is True
+    reads = []
+    original = builtins.open
+    def observe(path, mode='r', *args, **kwargs):
+        if isinstance(path, (str, Path)) and Path(path).parent == tmp_path / 'models' and mode == 'rb':
+            reads.append(Path(path).name)
+        return original(path, mode, *args, **kwargs)
+    monkeypatch.setattr(builtins, 'open', observe)
+    assert client.get('/setup/readiness').json['checks']['models'] is True
+    count = len(reads)
+    assert count > 0
+    assert client.get('/setup/readiness').json['checks']['models'] is True
+    assert len(reads) == count
+    (tmp_path / 'models/glintr100.onnx').write_bytes(b'corrupt')
+    assert client.get('/setup/readiness').json['checks']['models'] is False
+    assert len(reads) > count
 
 
 @pytest.mark.parametrize('blocked', ['empty', 'revoked', 'clock'])
