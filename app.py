@@ -35,16 +35,14 @@ Simulasi aturan absensi (tanpa menyimpan):
 Model AI dan pengenalan wajah: lihat recognition/cli.py
     (models-download, models-check, face-check, face-enroll, face-identify)
 """
-import re
-
 import click
-from flask import Flask, flash, jsonify, redirect, render_template, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 from flask_wtf.csrf import CSRFError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 import models  # noqa: F401  (mendaftarkan model untuk Flask-Migrate)
-from config import BASE_DIR, get_config, validate_attendance_config
+from config import BASE_DIR, get_config
 from extensions import csrf, db, login_manager, migrate
 from models import User, office_now
 from routes.auth import bp as auth_bp
@@ -54,17 +52,17 @@ from routes.kiosk import bp as kiosk_bp
 from routes.attendance import bp as attendance_bp
 from routes.reports import bp as reports_bp
 from routes.api import bp as api_bp, register_api_error_handlers
+from routes.setup import bp as setup_bp
 from maintenance.api_cli import register_api_commands
 from kiosk.cli import register_kiosk_commands
 from perf.cli import register_perf_commands
 from maintenance.cli import register_maintenance_commands, register_security_commands
-from services import audit_service as audit
+from services import ValidationError, audit_service as audit
+from services.auth_service import admin_values
 from services import biometric_service as biometric
+from services import setup_service
 from services.cli_errors import friendly_db_errors
 from recognition.cli import register_recognition_commands
-
-USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,50}$")
-MIN_PASSWORD_LENGTH = 10
 
 
 def check_database():
@@ -89,20 +87,11 @@ def register_commands(app):
     @friendly_db_errors
     def create_admin(username, name, password):
         """Membuat akun admin baru tanpa menulis password di kode."""
-        username = username.strip()
-        name = name.strip()
-
-        if not USERNAME_PATTERN.match(username):
-            raise click.ClickException(
-                "Username harus 3-50 karakter: huruf, angka, titik, "
-                "garis bawah, atau tanda minus."
-            )
-        if not name:
-            raise click.ClickException("Nama lengkap tidak boleh kosong.")
-        if len(password) < MIN_PASSWORD_LENGTH:
-            raise click.ClickException(
-                f"Password minimal {MIN_PASSWORD_LENGTH} karakter."
-            )
+        try:
+            values = admin_values(username, name, password)
+        except ValidationError as exc:
+            raise click.ClickException(next(iter(exc.errors.values()))) from exc
+        username, name = values['username'], values['name']
 
         exists = db.session.execute(
             db.select(User).filter_by(username=username)
@@ -419,15 +408,15 @@ def register_attendance_commands(app):
             click.echo(f"  Pulang cepat: {'ya' if decision.left_early else 'tidak'}")
 
 
-def create_app(config_name=None, overrides=None):
+def create_app(config_name=None, overrides=None, instance_path=None):
     """Membuat aplikasi. `overrides` (opsional) menimpa konfigurasi SEBELUM
     database disambungkan; dipakai uji performa agar memakai database sementara."""
-    app = Flask(__name__)
+    app = Flask(__name__, instance_path=instance_path)
     app.config.from_object(get_config(config_name))
     if overrides:
         app.config.update(overrides)
 
-    validate_attendance_config(app.config)
+    setup_service.prepare_storage(app, overrides or {})
 
     if not app.config.get("SECRET_KEY"):
         raise RuntimeError(
@@ -436,11 +425,15 @@ def create_app(config_name=None, overrides=None):
         )
 
     db.init_app(app)
+    with app.app_context():
+        setup_service.initialize_setup(overrides or {})
     migrate.init_app(app, db)
     login_manager.init_app(app)
+    app.before_request(setup_service.hold_operational_requests)
     csrf.init_app(app)
 
     app.register_blueprint(auth_bp)
+    app.register_blueprint(setup_bp)
     app.register_blueprint(employees_bp)
     app.register_blueprint(schedules_bp)
     app.register_blueprint(kiosk_bp)
@@ -458,6 +451,7 @@ def create_app(config_name=None, overrides=None):
     register_maintenance_commands(app)
     register_security_commands(app)
     register_api_commands(app)
+    setup_service.register_setup_commands(app)
 
     @app.after_request
     def security_headers(response):
@@ -469,6 +463,8 @@ def create_app(config_name=None, overrides=None):
     @app.errorhandler(CSRFError)
     def handle_csrf_error(error):
         flash("Formulir kedaluwarsa atau tidak valid. Silakan coba lagi.", "error")
+        if request.blueprint == 'setup':
+            return redirect(url_for('setup.index')), 302
         return redirect(url_for("auth.login")), 302
 
     @app.get("/")

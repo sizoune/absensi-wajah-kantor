@@ -40,10 +40,13 @@ def test_existing_invalid_secret_fails_without_rekeying(tmp_path, existing):
     assert path.read_text() == existing
 
 
-def test_container_uses_local_metadata_without_attendance_or_enrollment(tmp_path):
+def test_container_uses_local_metadata_without_attendance_or_enrollment(tmp_path, monkeypatch):
+    from config import ProductionConfig
     from sqlalchemy import inspect, text
     from extensions import db
 
+    monkeypatch.setattr(ProductionConfig, 'ATTENDANCE_MODE', 'standalone')
+    monkeypatch.setattr(ProductionConfig, 'ATTENDANCE_MODE_CONFIGURED', True)
     app = startup()['create_container_app'](tmp_path)
     try:
         assert app.config['CAMERA_SOURCE'] == 'browser'
@@ -189,12 +192,14 @@ def test_shutdown_signals_close_browser_runtime(stop_signal):
     assert calls == ['camera', 'server']
 
 
-def test_eoffice_container_resumes_service_before_serving():
+@pytest.mark.parametrize('setup_required', [False, True])
+def test_eoffice_container_resumes_service_before_serving(setup_required):
     module = startup()
     calls = []
     camera = SimpleNamespace(start_service=lambda: calls.append('service'),
                              close=lambda: calls.append('camera'))
-    app = SimpleNamespace(extensions={'browser_camera': camera}, config={'ATTENDANCE_MODE': 'eoffice'})
+    app = SimpleNamespace(extensions={'browser_camera': camera},
+                          config={'ATTENDANCE_MODE': 'eoffice', 'SETUP_REQUIRED': setup_required})
     server = SimpleNamespace(run=lambda: calls.append('http'), close=lambda: calls.append('server'))
     module['main'].__globals__.update(create_container_app=lambda: app, create_http_server=lambda _: server)
     previous = {value: signal.getsignal(value) for value in (signal.SIGTERM, signal.SIGINT)}
@@ -203,7 +208,7 @@ def test_eoffice_container_resumes_service_before_serving():
     finally:
         for value, handler in previous.items():
             signal.signal(value, handler)
-    assert calls == ['service', 'http', 'camera', 'server']
+    assert calls == (['http', 'camera', 'server'] if setup_required else ['service', 'http', 'camera', 'server'])
 
 
 def test_default_compose_ignores_ambient_integration_settings():

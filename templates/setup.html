@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Setup perangkat{% endblock %}
+{% block page_class %}page-narrow{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="card-title">Setup perangkat absensi</h1>
+  {% if access %}
+  <p>Kemajuan tersimpan. Langkah yang belum selesai:</p>
+  {% set labels = {'storage': 'Penyimpanan dan kunci enkripsi', 'admin': 'Admin lokal',
+                   'organization': 'SKPD dan cakupan perangkat', 'models': 'Model pengenalan',
+                   'snapshot': 'Snapshot enrollment', 'camera': 'Pemeriksaan kamera'} %}
+  <ul>{% for step in status.pending %}<li>{{ labels[step] }}</li>{% endfor %}</ul>
+  {% if not status.steps.storage %}
+  <p role="alert">Kunci enkripsi belum tersedia atau tidak dapat dibaca. Pulihkan kunci asli dari cadangan; data lama tetap disimpan.</p>
+  {% endif %}
+  {% if not status.steps.admin %}
+  <form method="post" action="{{ url_for('setup.first_admin') }}" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="username">Username admin pertama</label>
+    <input id="username" name="username" type="text" required minlength="3" maxlength="50" autocomplete="username">
+    <label for="password">Password (minimal 10 karakter)</label>
+    <input id="password" name="password" type="password" required minlength="10" autocomplete="new-password">
+    <button type="submit" class="btn">Buat admin</button>
+  </form>
+  {% else %}
+  <p>Akun admin yang ada tetap digunakan.</p>
+  {% endif %}
+  {% else %}
+  <p>Gunakan kode setup dari perintah lokal <code>flask --app app setup-code</code>.</p>
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="code">Kode setup</label>
+    <input id="code" name="code" type="password" required autocomplete="off">
+    <button type="submit" class="btn">Buka setup</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

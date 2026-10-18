@@ -38,7 +38,7 @@ def _build_database_uri():
     return url.render_as_string(hide_password=False)
 
 
-def validate_attendance_config(config: Mapping[str, object]) -> None:
+def validate_bootstrap_config(config: Mapping[str, object]) -> None:
     if config.get('CAMERA_SOURCE', 'native') not in ('native', 'browser'):
         raise ValueError('CAMERA_SOURCE must be native or browser')
     mode = config.get('ATTENDANCE_MODE', 'standalone')
@@ -47,6 +47,11 @@ def validate_attendance_config(config: Mapping[str, object]) -> None:
     test_mode = config.get('EOFFICE_TEST_MODE', False)
     if type(test_mode) is not bool or test_mode and mode != 'eoffice':
         raise ValueError('EOFFICE_TEST_MODE requires a boolean and ATTENDANCE_MODE=eoffice')
+
+
+def validate_attendance_config(config: Mapping[str, object]) -> None:
+    validate_bootstrap_config(config)
+    mode = config.get('ATTENDANCE_MODE', 'standalone')
     if mode == 'standalone':
         return
     base_url = config.get('EOFFICE_BASE_URL')
@@ -84,6 +89,10 @@ def _eoffice_test_mode() -> bool:
 
 
 class Config:
+    FIRST_SETUP_ENABLED = True
+    ATTENDANCE_MODE_CONFIGURED = 'ATTENDANCE_MODE' in os.environ
+    DATABASE_CONFIGURED = any(os.getenv(name) for name in
+                              ('DATABASE_URL', 'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'))
     ATTENDANCE_MODE = os.getenv('ATTENDANCE_MODE', 'standalone')
     EOFFICE_TEST_MODE = _eoffice_test_mode()
     EOFFICE_BASE_URL = os.getenv('EOFFICE_BASE_URL', '')
@@ -192,6 +201,7 @@ class ProductionConfig(Config):
 
 class TestingConfig(Config):
     TESTING = True
+    FIRST_SETUP_ENABLED = False
     SECRET_KEY = "kunci-khusus-pengujian-bukan-untuk-produksi"
     # Pengujian memakai SQLite di memori agar tidak menyentuh data MySQL.
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"

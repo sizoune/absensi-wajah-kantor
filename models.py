@@ -59,6 +59,19 @@ class User(UserMixin, TimestampMixin, db.Model):
         return f"<User {self.username}>"
 
 
+class SetupState(db.Model):
+    """Single installation's progress; credentials are never stored as plaintext."""
+
+    __tablename__ = 'setup_state'
+
+    id = db.Column(db.Integer, primary_key=True)
+    complete = db.Column(db.Boolean, nullable=False, default=False)
+    code_hash = db.Column(db.String(64))
+    session_hash = db.Column(db.String(64))
+    progress = db.Column(db.JSON, nullable=False, default=dict)
+    settings = db.Column(db.LargeBinary)
+
+
 # Urutan hari mengikuti datetime.weekday(): 0 = Senin ... 6 = Minggu.
 WEEKDAY_NAMES = ("Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu")
 
