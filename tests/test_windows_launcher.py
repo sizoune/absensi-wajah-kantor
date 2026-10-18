@@ -58,9 +58,11 @@ def test_launcher_shows_setup_code_only_locally_and_serves_wizard(tmp_path, monk
     assert 'Kode setup:' in console.getvalue()
 
 
-@pytest.mark.parametrize(('hold', 'pending'), [(None, False), ('scope', False),
-                                             ('launcher', False), ('launcher', True)])
-def test_native_retry_stops_cleanly_and_preserves_settings_holds(tmp_path, monkeypatch, hold, pending, local_http):
+@pytest.mark.parametrize(('hold', 'pending_scope', 'pending_credentials'), [
+    (None, False, False), ('scope', False, False), ('credentials', False, False),
+    ('launcher', False, False), ('launcher', True, False), ('launcher', False, True)])
+def test_native_retry_stops_cleanly_and_preserves_settings_holds(
+        tmp_path, monkeypatch, hold, pending_scope, pending_credentials, local_http):
     from maintenance.windows_launcher import run
 
     lock = tmp_path / 'camera.lock'
@@ -68,8 +70,10 @@ def test_native_retry_stops_cleanly_and_preserves_settings_holds(tmp_path, monke
     app = installation(tmp_path, CAMERA_SOURCE='native', KIOSK_LOCK_FILE=str(lock))
     if hold:
         pause.write_text(hold + '\n')
-    if pending:
+    if pending_scope:
         app.config['SCOPE_CHANGE'] = {'skpd_id': 79, 'scope_type': 'parent', 'subunit_id': None}
+    app.config['CREDENTIAL_REPAIR_PENDING'] = pending_credentials
+    held = hold in ('scope', 'credentials') or pending_scope or pending_credentials
     children = []
 
     class NativeRetry:
@@ -96,14 +100,14 @@ def test_native_retry_stops_cleanly_and_preserves_settings_holds(tmp_path, monke
 
     def browser(url):
         assert len(children) == 1
-        assert pause.exists() == (hold == 'scope' or pending)
+        assert pause.exists() == held
         raise KeyboardInterrupt
 
     monkeypatch.setattr(subprocess, 'Popen', NativeRetry)
     monkeypatch.setattr(webbrowser, 'open', browser)
     run(app, console=LocalConsole())
     assert children[0].exited
-    assert pause.exists() == (hold == 'scope' or pending)
+    assert pause.exists() == held
     if pause.exists():
         assert pause.read_text() == hold + '\n'
 

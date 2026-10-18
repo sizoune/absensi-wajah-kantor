@@ -76,7 +76,8 @@ def run(app=None, console=None):
                 from kiosk.control import capture_fence, capture_paused
                 if capture_paused(app):
                     with app.app_context(), capture_fence(app, reason='launcher') as fence:
-                        if fence.reason == 'launcher' and not app.config.get('SCOPE_CHANGE'):
+                        if (fence.reason == 'launcher' and not app.config.get('SCOPE_CHANGE')
+                                and not app.config.get('CREDENTIAL_REPAIR_PENDING')):
                             fence.resume()
                 stop_file.unlink(missing_ok=True)
                 native = subprocess.Popen([
@@ -106,7 +107,8 @@ def run(app=None, console=None):
                 try:
                     with app.app_context(), capture_fence(app, reason='launcher') as fence:
                         native.wait(timeout=12)
-                        if not fence.was_paused and not app.config.get('SCOPE_CHANGE'):
+                        if (not fence.was_paused and not app.config.get('SCOPE_CHANGE')
+                                and not app.config.get('CREDENTIAL_REPAIR_PENDING')):
                             fence.resume()
                 except (CaptureBusy, subprocess.TimeoutExpired) as exc:
                     raise RuntimeError('Kamera lama masih berhenti. Capture tetap ditahan; tunggu lalu coba lagi.') from exc
