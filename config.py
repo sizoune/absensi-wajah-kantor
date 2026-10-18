@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from sqlalchemy.engine import URL
 
 BASE_DIR = Path(__file__).resolve().parent
+EOFFICE_PRODUCTION_URL = 'https://api-e-office.tabalongkab.go.id'
 load_dotenv(BASE_DIR / ".env")
 
 
@@ -95,7 +96,7 @@ class Config:
                               ('DATABASE_URL', 'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'))
     ATTENDANCE_MODE = os.getenv('ATTENDANCE_MODE', 'standalone')
     EOFFICE_TEST_MODE = _eoffice_test_mode()
-    EOFFICE_BASE_URL = os.getenv('EOFFICE_BASE_URL', '')
+    EOFFICE_BASE_URL = os.getenv('EOFFICE_BASE_URL', EOFFICE_PRODUCTION_URL)
     EOFFICE_DEVICE_TOKEN = os.getenv('EOFFICE_DEVICE_TOKEN', '')
     EOFFICE_AURAFACE_PATH = os.getenv('EOFFICE_AURAFACE_PATH', '')
     EOFFICE_PERIOCULAR_PATH = os.getenv('EOFFICE_PERIOCULAR_PATH', '')

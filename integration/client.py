@@ -59,6 +59,7 @@ class EofficeClient:
                 or url.password is not None or url.query or url.fragment
                 or any(char.isspace() for char in base_url)):
             raise ValueError('Expected HTTPS e-office URL without credentials, query or fragment')
+        url.port
         if type(token) is not str or not token or any(char.isspace() for char in token):
             raise ValueError('Expected e-office device token')
         self._base_url = base_url.rstrip('/')
@@ -90,7 +91,7 @@ class EofficeClient:
         uncertainty = 1 + received_monotonic - started
         with response:
             # Date floors to a second; the full round trip bounds unknown one-way delay.
-            if body is None and (not math.isfinite(uncertainty)
+            if path == self._path + '/snapshot' and (not math.isfinite(uncertainty)
                                  or not 1 <= uncertainty <= MAX_ANCHOR_UNCERTAINTY_SECONDS):
                 raise ValueError('Authenticated server Date uncertainty exceeds clock tolerance')
             code = response.status if hasattr(response, 'status') else response.code
@@ -129,6 +130,54 @@ class EofficeClient:
         self.snapshot_received_wall_time = received_wall
         self.snapshot_uncertainty_seconds = uncertainty
         return snapshot
+
+    @staticmethod
+    def _identity(value):
+        if (type(value) is not dict or set(value) != {'device_id', 'skpd_id', 'scope_type', 'subunit_id', 'purpose'}
+                or type(value['device_id']) is not str or UUID.fullmatch(value['device_id']) is None
+                or type(value['skpd_id']) is not int or value['skpd_id'] <= 0
+                or value['scope_type'] != 'all_skpd' or value['subunit_id'] is not None
+                or value['purpose'] != 'attendance'):
+            raise ValueError('Invalid authorized device identity')
+        return value
+
+    def identity(self):
+        code, value, *_ = self._request(self._path + '/identity', None, 16 * 1024)
+        if code != 200:
+            raise RequestFailure(code)
+        return self._identity(value)
+
+    def organizations(self):
+        if self.test_mode:
+            raise ValueError('Operational organization setup cannot use camera-test credentials')
+        code, value, *_ = self._request(self._path + '/organizations', None, 16 * 1024)
+        if code != 200:
+            raise RequestFailure(code)
+        if set(value) != {'device', 'organizations'}:
+            raise ValueError('Invalid authorized organizations')
+        identity = self._identity(value['device'])
+        organizations = value['organizations']
+        if type(organizations) is not list or len(organizations) != 1:
+            raise ValueError('Invalid authorized organizations')
+        organization = organizations[0]
+        if (type(organization) is not dict or set(organization) != {'skpd_id', 'name', 'scope_types'}
+                or type(organization['skpd_id']) is not int or organization['skpd_id'] != identity['skpd_id']
+                or type(organization['name']) is not str or not organization['name'].strip()
+                or len(organization['name']) > 255 or organization['scope_types'] != ['all_skpd']):
+            raise ValueError('Invalid authorized organization')
+        return value
+
+    def select_scope(self, scope):
+        if self.test_mode:
+            raise ValueError('Operational organization setup cannot use camera-test credentials')
+        if (type(scope) is not dict or set(scope) != {'skpd_id', 'scope_type', 'subunit_id'}
+                or type(scope['skpd_id']) is not int or scope['skpd_id'] <= 0
+                or scope['scope_type'] != 'all_skpd' or scope['subunit_id'] is not None):
+            raise ValueError('Invalid device scope')
+        code, value, *_ = self._request(self._path + '/scope', json.dumps(scope).encode('utf-8'), 16 * 1024)
+        if code != 200:
+            raise RequestFailure(code)
+        return self._identity(value)
 
     def send(self, event_bytes: bytes) -> dict[str, JSONValue]:
         if type(event_bytes) is not bytes or len(event_bytes) > 16 * 1024:
