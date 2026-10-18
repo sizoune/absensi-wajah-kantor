@@ -12,6 +12,7 @@ ditolak, sehingga model yang rusak atau diubah pihak lain tidak akan dipakai.
 import hashlib
 import os
 import urllib.request
+from urllib.error import HTTPError
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -77,6 +78,21 @@ MINIFAS_V1SE = ModelFile(
     urls=("https://github.com/yakhyo/face-anti-spoofing/releases/download/weights/MiniFASNetV1SE.onnx",),
 )
 
+AURAFACE = ModelFile(
+    key="auraface_512", filename="glintr100.onnx",
+    sha256="a7933ea5330113b01c9b60351d8f4c33003f145d8470ac5f0e52ee2effe25c60",
+    size=260694151, license="Apache-2.0",
+    source="https://huggingface.co/fal/AuraFace-v1/tree/94ee6ceb788a98a88807db884ae1f00d7e070d23",
+    urls=("https://huggingface.co/fal/AuraFace-v1/resolve/94ee6ceb788a98a88807db884ae1f00d7e070d23/glintr100.onnx",),
+)
+
+MOBILEFACENET = ModelFile(
+    key="mobilefacenet_v1_periocular", filename="mobilefacenet.tflite",
+    sha256="be4bc7cfc53f7bc336d0f28b1ab92535f618c913a422b683210750f6b5354854",
+    size=5233552, license="",
+    source="eOffice authenticated device distribution", urls=(),
+)
+
 FACE_MODELS = (YUNET, SFACE)
 LIVENESS_MODELS = (MINIFAS_V2, MINIFAS_V1SE)
 ALL_MODELS = FACE_MODELS + LIVENESS_MODELS
@@ -84,6 +100,13 @@ ALL_MODELS = FACE_MODELS + LIVENESS_MODELS
 
 class ModelFileError(Exception):
     """File model tidak ada, rusak, atau sidik jarinya tidak cocok."""
+
+
+class ModelDownloadError(ModelFileError):
+    def __init__(self, message, reason, downloaded_bytes=0):
+        super().__init__(message)
+        self.reason = reason
+        self.downloaded_bytes = downloaded_bytes
 
 
 def sha256_of(path):
@@ -115,29 +138,43 @@ def verify(model_dir, model):
     return path
 
 
-def download(model_dir, model, opener=urllib.request.urlopen, timeout=60):
+def download(model_dir, model, opener=urllib.request.urlopen, timeout=60, progress=None):
     """Mengunduh model dari daftar URL, berhenti di URL pertama yang sidik jarinya cocok."""
     target = model_path(model_dir, model)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + ".part")
     errors = []
+    reason, received = 'unavailable', 0
     for url in model.urls:
         try:
             h = hashlib.sha256()
+            received = 0
             with opener(url, timeout=timeout) as resp, open(tmp, "wb") as out:
-                for chunk in iter(lambda: resp.read(1024 * 1024), b""):
+                for chunk in iter(lambda: resp.read(min(1024 * 1024, model.size - received + 1)), b""):
+                    received += len(chunk)
+                    if received > model.size:
+                        raise ModelDownloadError('sidik jari atau ukuran tidak cocok', 'hash_mismatch')
                     h.update(chunk)
                     out.write(chunk)
-            if h.hexdigest() != model.sha256:
+                    if progress is not None:
+                        progress(received)
+            if h.hexdigest() != model.sha256 or received != model.size:
+                reason = 'partial' if received < model.size else 'hash_mismatch'
                 errors.append(f"{url}: sidik jari tidak cocok")
                 continue
             os.replace(tmp, target)
             return target
         except Exception as exc:  # jaringan gagal, URL tidak tersedia, dll.
-            errors.append(f"{url}: {exc.__class__.__name__}")
+            if isinstance(exc, HTTPError):
+                exc.close()
+            reason = getattr(exc, 'reason', None)
+            if reason not in ('partial', 'hash_mismatch'):
+                reason = 'partial' if received else 'unavailable'
+            detail = 'sidik jari tidak cocok' if isinstance(exc, ModelDownloadError) else exc.__class__.__name__
+            errors.append(f"{url}: {detail}")
         finally:
             if tmp.exists():
                 tmp.unlink()
-    raise ModelFileError(
-        f"Gagal mengunduh {model.filename}. " + "; ".join(errors)
+    raise ModelDownloadError(
+        f"Gagal mengunduh {model.filename}. " + "; ".join(errors), reason, min(received, model.size)
     )

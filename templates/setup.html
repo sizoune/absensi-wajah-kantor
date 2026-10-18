@@ -25,6 +25,7 @@
   {% else %}
   <p>Akun admin yang ada tetap digunakan.</p>
   {% endif %}
+  {% include "setup_models.html" %}
   {% else %}
   <p>Gunakan kode setup dari perintah lokal <code>flask --app app setup-code</code>.</p>
   <form method="post" class="form">

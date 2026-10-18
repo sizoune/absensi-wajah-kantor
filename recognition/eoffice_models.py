@@ -11,14 +11,14 @@ import onnxruntime as ort
 from ai_edge_litert.interpreter import Interpreter
 from skimage import transform as sk_transform
 
-from recognition.model_files import ModelFileError, sha256_of
+from recognition.model_files import AURAFACE, MOBILEFACENET, ModelFileError, sha256_of
 
 ARCFACE_DST = np.array([
     [38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
     [41.5493, 92.3655], [70.7299, 92.2041]], dtype=np.float32)
 MODEL_HASHES = {
-    'auraface_512': 'a7933ea5330113b01c9b60351d8f4c33003f145d8470ac5f0e52ee2effe25c60',
-    'mobilefacenet_v1_periocular': 'be4bc7cfc53f7bc336d0f28b1ab92535f618c913a422b683210750f6b5354854',
+    AURAFACE.key: AURAFACE.sha256,
+    MOBILEFACENET.key: MOBILEFACENET.sha256,
 }
 DIMENSIONS = {'auraface_512': 512, 'mobilefacenet_v1_periocular': 192}
 Landmarks = NDArray[np.float32] | NDArray[np.float64] | Sequence[Sequence[float]]
@@ -44,6 +44,18 @@ def model_manifest(paths: Mapping[str, str | PathLike[str]]) -> dict[str, ModelM
             raise ModelFileError(f'Model SHA-256 mismatch: {version}')
         manifest[version] = {'version': version, 'sha256': digest, 'dimension': DIMENSIONS[version]}
     return manifest
+
+
+def validate_model_compatibility(manifest, policies):
+    """The same exact enrollment metadata gate applies during setup and recognition."""
+    if set(manifest) != set(DIMENSIONS) or set(policies) != set(DIMENSIONS):
+        raise ValueError('Both e-office model policies are required')
+    for version, dimension in DIMENSIONS.items():
+        policy = policies[version]
+        if (policy['embedding_version'] != version or policy['dimension'] != dimension
+                or manifest[version] != {'version': version, 'dimension': dimension,
+                                         'sha256': policy['weights_sha256']}):
+            raise ValueError('Local model does not match authenticated policy')
 
 
 def _image(frame):
