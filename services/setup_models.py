@@ -58,7 +58,7 @@ def _saved_snapshot():
     if not path.exists():
         return None
     active, keys = load_keyring(current_app.config['EOFFICE_KEY_FILE'])
-    store = IntegrationStore(path, keys[active], test_mode=test_mode)
+    store = IntegrationStore(path, keys[active], test_mode=test_mode, initialize=False)
     try:
         return store.load_snapshot()
     finally:

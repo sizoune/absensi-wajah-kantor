@@ -1,4 +1,5 @@
 """Verified replacement credentials reuse the same encrypted queue and sync protocol."""
+import json
 import re
 import sqlite3
 
@@ -8,6 +9,7 @@ from integration.client import EofficeClient
 from integration.clock import TrustedClock
 from integration.sync import SyncWorker
 from integration.store import StoreIntegrityError
+from integration.protocol import UUID
 from kiosk.control import CaptureBusy, capture_fence, capture_paused, reload_capture_settings
 from kiosk.state import KioskState, public_view
 from services import setup_organization as organization
@@ -35,6 +37,37 @@ def token_status():
             'access': live.get('integration', {}).get('auth', 'unavailable')}
 
 
+def _bind_legacy_identity(client, store, pending):
+    if load_settings().get('SETUP_MANAGED') or current_app.config.get('EOFFICE_SCOPE_TYPE') is not None:
+        raise TokenRepairError('identity_unavailable', 'Identitas perangkat lama belum tersedia. Pulihkan konfigurasi asli.')
+    references = set()
+    snapshot = store.load_snapshot()
+    if snapshot is not None:
+        references.add(snapshot['snapshot_id'].lower())
+    for entry in pending:
+        reference = json.loads(entry.body).get('snapshot_id')
+        if type(reference) is not str or UUID.fullmatch(reference) is None:
+            raise TokenRepairError('identity_evidence_unavailable',
+                'Referensi snapshot antrean lama tidak lengkap. Pulihkan antrean dan riwayat server asli; data tidak diubah.')
+        references.add(reference.lower())
+    if not references:
+        raise TokenRepairError('identity_evidence_unavailable',
+            'Bukti snapshot perangkat lama tidak tersedia. Pulihkan data dan riwayat server asli; data tidak diubah.')
+    info = client.organizations()
+    ordered = sorted(references)
+    for offset in range(0, len(ordered), 256):
+        proof = client.verify_snapshot_ownership(ordered[offset:offset + 256])
+        if proof['device'] != info['device']:
+            raise TokenRepairError('identity_evidence_changed',
+                'Identitas atau cakupan server berubah selama pemeriksaan. Capture ditahan; coba lagi.')
+    # Pre-wizard installations always served the whole fixed SKPD; server proof binds its missing UUID.
+    save_settings({'EOFFICE_DEVICE_ID': info['device']['device_id'], 'EOFFICE_SKPD_ID': info['device']['skpd_id'],
+        'EOFFICE_SCOPE_TYPE': 'all_skpd', 'EOFFICE_SUBUNIT_ID': None,
+        'EOFFICE_ORGANIZATION_NAME': info['organizations'][0]['name'], 'EOFFICE_SUBUNIT_NAME': None})
+    record_progress('organization')
+    return info
+
+
 def repair_token(token):
     if current_app.config.get('EOFFICE_TEST_MODE'):
         raise TokenRepairError('test_mode', 'Token uji tetap memakai jalur uji yang terpisah.', 403)
@@ -44,8 +77,6 @@ def repair_token(token):
     try:
         with capture_fence(current_app._get_current_object(), reason='credentials') as fence:
             reload_capture_settings(current_app)
-            if not current_app.config.get('EOFFICE_DEVICE_ID'):
-                raise TokenRepairError('identity_unavailable', 'Identitas perangkat lama belum tersedia. Pulihkan konfigurasi asli.', 409)
             if not organization._store_path().is_file():
                 raise TokenRepairError('storage_unavailable', 'Penyimpanan lama tidak tersedia. Pulihkan data dan kunci asli.', 503)
             try:
@@ -53,10 +84,13 @@ def repair_token(token):
             except (OSError, sqlite3.Error, StoreIntegrityError, BiometricKeyError) as exc:
                 raise TokenRepairError('storage_unavailable', 'Penyimpanan lama tidak valid. Pulihkan data dan kunci asli.', 503) from exc
             try:
-                store.pending()
+                pending = store.pending()
+                info = None
+                if not current_app.config.get('EOFFICE_DEVICE_ID'):
+                    info = _bind_legacy_identity(EofficeClient(current_app.config['EOFFICE_BASE_URL'], token), store, pending)
                 scope = EofficeClient.validate_scope(organization._selected_scope())
                 client = EofficeClient(current_app.config['EOFFICE_BASE_URL'], token, scope=scope)
-                info = client.organizations()
+                info = info if info is not None else client.organizations()
                 if info['device']['device_id'] != current_app.config['EOFFICE_DEVICE_ID']:
                     raise TokenRepairError('device_mismatch', 'Token berasal dari perangkat berbeda. Minta token pengganti perangkat yang sama.', 403)
                 server_scope = {key: info['device'][key] for key in ('skpd_id', 'scope_type', 'subunit_id')}
