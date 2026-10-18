@@ -56,23 +56,33 @@ def _event_id(value: object) -> str:
 
 
 class IntegrationStore:
-    def __init__(self, path: str | PathLike[str], key: bytes, *, test_mode: bool = False) -> None:
+    def __init__(self, path: str | PathLike[str], key: bytes, *, test_mode: bool = False,
+                 initialize: bool = True) -> None:
         if type(key) is not bytes or len(key) != 32:
             raise ValueError('Integration encryption requires a 32-byte key')
         self._cipher = AESGCM(key)
         self.test_mode = test_mode
         self._lock = RLock()
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(path, timeout=5.0, check_same_thread=False)
+        if initialize:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+        source = path if initialize else Path(path).resolve().as_uri() + '?mode=rw'
+        self._db = sqlite3.connect(source, uri=not initialize, timeout=5.0, check_same_thread=False)
         try:
             self._db.execute('PRAGMA synchronous=FULL')
+            key_check = b'eoffice-test-state-v1' if test_mode else b'eoffice-state-v1'
+            if not initialize:
+                row = self._db.execute("SELECT payload FROM metadata WHERE name='key_check'").fetchone()
+                if row is None or self._decrypt(row[0], 'metadata:key_check') != key_check:
+                    raise StoreIntegrityError('Integration key check is missing or invalid')
+                self._db.execute('SELECT snapshot_id,payload FROM snapshot LIMIT 0')
+                self._db.execute('SELECT event_id,body,response FROM events LIMIT 0')
+                return
             with self._db:
                 self._db.execute('BEGIN IMMEDIATE')
                 self._db.execute('CREATE TABLE IF NOT EXISTS snapshot (singleton INTEGER PRIMARY KEY CHECK(singleton=1), snapshot_id TEXT NOT NULL, payload BLOB NOT NULL)')
                 self._db.execute('CREATE TABLE IF NOT EXISTS metadata (name TEXT PRIMARY KEY, payload BLOB NOT NULL)')
                 self._db.execute('CREATE TABLE IF NOT EXISTS events (event_id TEXT PRIMARY KEY, body BLOB NOT NULL, response BLOB)')
                 row = self._db.execute("SELECT payload FROM metadata WHERE name='key_check'").fetchone()
-                key_check = b'eoffice-test-state-v1' if test_mode else b'eoffice-state-v1'
                 if row is None:
                     if self._db.execute('SELECT 1 FROM events UNION ALL SELECT 1 FROM snapshot LIMIT 1').fetchone():
                         raise StoreIntegrityError('Integration key check is missing')

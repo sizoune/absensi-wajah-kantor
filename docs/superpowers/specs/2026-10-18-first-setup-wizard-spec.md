@@ -1,6 +1,6 @@
 # Wizard first setup perangkat absensi eOffice
 
-Status: spesifikasi hasil kesepakatan Q1–Q23. Batas pengujian telah dikonfirmasi pengguna. Siap dikerjakan agent; belum diimplementasikan.
+Status: spesifikasi hasil kesepakatan Q1–Q23. Batas pengujian telah dikonfirmasi pengguna. Implementasi tersedia pada branch `integration/first-setup-wizard`; penerimaan fisik dan deployment masih menunggu verifikasi.
 
 ## Problem Statement
 

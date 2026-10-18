@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Pulihkan akses perangkat{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Token pengganti perangkat</h1>
+  <p>Gunakan token pengganti dari admin server untuk identitas perangkat yang sama. Antrean lama dan kunci tetap dipertahankan.</p>
+  {% if credential.capture_held %}<p role="alert">Capture ditahan sampai akses dan snapshot terverifikasi. Antrean tetap disimpan.</p>{% endif %}
+  {% if credential.scope_change_pending or credential.scope_mismatch %}<p role="alert">Perubahan cakupan belum selesai. Token yang cocok tidak membuka capture sebelum cakupan dan snapshot sesuai.</p>{% endif %}
+  <form method="post" action="{{ url_for('setup.token_repair') }}" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="replacement-token">Token pengganti</label>
+    <input id="replacement-token" name="token" type="password" required autocomplete="off" minlength="64" maxlength="64">
+    <button class="btn" type="submit">Periksa identitas dan pulihkan akses</button>
+  </form>
+  {% if credential.recovery_pending %}
+  <form method="post" action="{{ url_for('setup.token_retry') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn" type="submit">Coba lagi dengan token tersimpan</button>
+  </form>
+  {% endif %}
+  <p><a href="{{ url_for('setup.scope_page') }}">Periksa perubahan cakupan yang tertunda</a></p>
+  <p><a href="{{ url_for('setup.readiness_page') }}">Periksa kesiapan perangkat</a></p>
+</section>
+{% endblock %}
