@@ -18,9 +18,10 @@ from sqlalchemy.engine import make_url
 from config import validate_attendance_config, validate_bootstrap_config
 from extensions import db
 from models import AuditLog, SetupState, User
-from services import biometric_service
+from services import ValidationError, biometric_service
 from services import audit_service as audit
-from services.auth_service import admin_values
+from services.auth_service import admin_values, recover_admin_password
+from services.cli_errors import friendly_db_errors
 
 STEPS = ('storage', 'admin', 'organization', 'models', 'snapshot', 'camera')
 
@@ -233,6 +234,19 @@ def register_setup_commands(app):
             click.echo(issue_setup_code())
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
+
+    @app.cli.command('reset-admin-password')
+    @click.option('--username', prompt='Username admin')
+    @friendly_db_errors
+    def reset_admin_password(username):
+        """Pulihkan password admin aktif dari terminal lokal."""
+        password = click.prompt('Password baru (minimal 10 karakter)', hide_input=True,
+                                confirmation_prompt='Ulangi password baru')
+        try:
+            user = recover_admin_password(username, password)
+        except ValidationError as exc:
+            raise click.ClickException(next(iter(exc.errors.values()))) from exc
+        click.echo(f"Password admin '{user.username}' berhasil dipulihkan.")
 
 
 def setup_status():
