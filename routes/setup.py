@@ -7,7 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from extensions import db
 from services import ValidationError
-from services.setup_service import create_first_admin, redeem_setup_code, setup_required, setup_status, valid_setup_grant
+from services.setup_service import create_first_admin, redeem_setup_code, setup_required, valid_setup_grant
 
 bp = Blueprint('setup', __name__, url_prefix='/setup')
 
@@ -43,13 +43,15 @@ def index():
         session['setup_grant'] = grant
         return redirect(url_for('setup.index'))
     access = valid_setup_grant(session.get('setup_grant'))
-    return render_template('setup.html', access=access, status=setup_status() if access else None)
+    from services.setup_readiness import readiness_status
+    return render_template('setup.html', access=access, status=readiness_status() if access else None)
 
 
 @bp.get('/status')
 @setup_access_required
 def status():
-    return setup_status()
+    from services.setup_readiness import readiness_status
+    return readiness_status()
 
 
 @bp.post('/admin')
@@ -63,9 +65,11 @@ def first_admin():
         db.session.rollback()
         for error in exc.errors.values():
             flash(error, 'error')
-        return render_template('setup.html', access=True, status=setup_status()), 400
+        from services.setup_readiness import readiness_status
+        return render_template('setup.html', access=True, status=readiness_status()), 400
     except SQLAlchemyError:
         db.session.rollback()
         flash('Admin belum tersimpan. Silakan coba lagi.', 'error')
-        return render_template('setup.html', access=True, status=setup_status()), 503
+        from services.setup_readiness import readiness_status
+        return render_template('setup.html', access=True, status=readiness_status()), 503
     return redirect(url_for('setup.index'))

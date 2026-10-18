@@ -1,0 +1,18 @@
+<section id="setup-readiness" aria-labelledby="readiness-title" data-status-url="{{ url_for('setup.readiness') }}">
+  <h2 id="readiness-title">{% if not status.complete %}Setup belum selesai{% elif status.ready %}Siap absensi{% else %}Setup selesai, belum siap absensi{% endif %}</h2>
+  <p>Konfigurasi tersimpan. Model, kamera, dan enrollment dapat dilengkapi melalui admin lokal setelah setup selesai.</p>
+  {% set reasons = {'configuration': 'Konfigurasi perangkat dan cakupan belum valid.', 'admin': 'Admin lokal aktif diperlukan.',
+    'storage': 'Penyimpanan atau kunci perlu diperiksa; pulihkan data asli.', 'snapshot': 'Snapshot awal yang valid belum tersedia.',
+    'models': 'Model belum tersedia atau belum cocok dengan enrollment.', 'camera': 'Kamera belum lolos pemeriksaan.',
+    'enrollment': 'Enrollment masih kosong; perangkat belum siap mengenali wajah.', 'liveness': 'Anti-foto pasif belum siap.',
+    'access': 'Akses perangkat menunggu sinkronisasi aktif.', 'clock': 'Waktu capture menunggu pembaruan server terautentikasi.',
+    'runtime_storage': 'Penyimpanan integrasi menunggu pemeriksaan layanan.', 'capture': 'Layanan kamera belum aktif.'} %}
+  <ul>{% for reason, text in reasons.items() %}<li data-readiness-reason="{{ reason }}"{% if reason not in status.blocked %} hidden{% endif %}>{{ text }}</li>{% endfor %}</ul>
+  {% if not status.complete %}
+  <form method="post" action="{{ url_for('setup.finish') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button id="setup-finish" type="submit" class="btn"{% if not status.can_finish %} disabled{% endif %}>Selesaikan setup</button>
+  </form>
+  {% endif %}
+</section>
+<script src="{{ url_for('static', filename='js/setup-readiness.js') }}" defer></script>

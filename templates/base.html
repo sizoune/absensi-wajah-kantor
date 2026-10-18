@@ -24,6 +24,7 @@
            {% if request.blueprint == 'employees' %}aria-current="page"{% endif %}>Karyawan</a>
         <a href="{{ url_for('schedules.list_schedules') }}"
            {% if request.blueprint == 'schedules' %}aria-current="page"{% endif %}>Jadwal kerja</a>
+        {% if config.SETUP_ENABLED %}<a href="{{ url_for('setup.readiness_page') }}">Kesiapan perangkat</a>{% endif %}
       </nav>
       <div class="user-area">
         <span class="user-name">{{ current_user.name }}</span>

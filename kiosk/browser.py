@@ -93,11 +93,13 @@ class Capture:
 
 
 class BrowserCamera:
-    def __init__(self, app):
+    def __init__(self, app, *, preview=False):
         self.app = app
         self.mode = 'eoffice' if app.config['ATTENDANCE_MODE'] == 'eoffice' else 'preview'
         if self.mode == 'eoffice' and app.config.get('EOFFICE_TEST_MODE', False):
             self.mode = 'camera_test'
+        if preview:
+            self.mode = 'preview'
         self.clock = time.monotonic
         self._lock = RLock()
         self._queue = Queue(maxsize=1)
@@ -110,6 +112,8 @@ class BrowserCamera:
         self._started_at = self._last_activity = 0.0
         self._fatal = False
         self._capture = None
+        self._sync = None
+        self._last_frame_at = None
         atexit.register(self.close)
 
     @property
@@ -117,8 +121,20 @@ class BrowserCamera:
         with self._lock:
             return self._owner is not None
 
+    @property
+    def closed(self):
+        return self._shutdown.is_set() or self._fatal
+
+    @property
+    def capturing(self):
+        with self._lock:
+            self._expire()
+            return (self._owner is not None and not self.closed and self._last_frame_at is not None
+                    and 0 <= self.clock() - self._last_frame_at <= TRACK_GAP_SECONDS)
+
     def _release(self):
         self._owner = self._cookie = self._origin = self._challenge = None
+        self._last_frame_at = None
         self._generation += 1
 
     def _expire(self):
@@ -261,6 +277,7 @@ class BrowserCamera:
                     from kiosk.worker import KioskWorker
                     from tracking.face_tracker import TrackerSettings
                     detector, quality, liveness, settings, integration = load_eoffice(self.app)
+                    self._sync = integration['sync_worker']
                     worker = KioskWorker(self.app, None, detector, None, quality, None,
                         TrackerSettings.from_config(self.app.config), None, state,
                         liveness=liveness, liveness_settings=settings, frame_guard=self._frame_guard,
@@ -276,7 +293,7 @@ class BrowserCamera:
                         generation, last_capture = current_generation, None
                     if worker is not None:
                         worker.reload_templates()
-                        worker.camera_status = 'ok' if active else 'stopped'
+                        worker.camera_status = 'ok' if self.capturing else 'stopped'
                         worker.publish()
                     elif self.clock() - last_publish >= .5:
                         state.publish({'camera': 'ok' if active else 'stopped', 'message': None,
@@ -300,16 +317,22 @@ class BrowserCamera:
                         if worker is not None:
                             worker.reload_templates()
                             worker.step(frame, captured_at=capture.acquired_at)
-                            worker.publish(force=True)
                         with self._frame_guard():
-                            pass
+                            self._last_frame_at = self.clock()
+                        if worker is not None:
+                            worker.camera_status = 'ok'
+                            worker.publish(force=True)
                     except CameraRequestError as exc:
                         capture.error = exc
+                        with self._lock:
+                            self._last_frame_at = None
                         self._reset_worker(worker)
                         last_capture = None
                     except Exception:
                         self.app.logger.exception('Browser camera frame failed')
                         capture.error = CameraRequestError('unavailable', 503)
+                        with self._lock:
+                            self._last_frame_at = None
                         self._reset_worker(worker)
                         last_capture = None
                     finally:
@@ -355,4 +378,8 @@ class BrowserCamera:
             self._release()
         if self._thread is not None:
             self._thread.join(timeout=7)
-        atexit.unregister(self.close)
+        drained = ((self._thread is None or not self._thread.is_alive())
+                   and (self._sync is None or self._sync.stop(timeout=0)))
+        if drained:
+            atexit.unregister(self.close)
+        return drained

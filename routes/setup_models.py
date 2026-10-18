@@ -47,6 +47,8 @@ def models():
     try:
         selected = request.form.get('model') or None
         status = prepare_models(selected)
+        from services.setup_camera import activate_browser
+        activate_browser()
         prepared = status['verified'] if selected is None else any(
             model['key'] == selected and model['state'] == 'verified' for model in status['models'])
         code = 200 if prepared else 503

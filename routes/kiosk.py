@@ -57,7 +57,11 @@ def protect_camera():
     if request.endpoint not in ('kiosk.camera_start', 'kiosk.camera_challenge',
                                 'kiosk.camera_frame', 'kiosk.camera_stop'):
         return None
-    if current_app.config.get('CAMERA_SOURCE') != 'browser':
+    return validate_camera_request()
+
+
+def validate_camera_request(*, browser=True):
+    if browser and current_app.config.get('CAMERA_SOURCE') != 'browser':
         return _camera_error('disabled', 404)
     if (urlsplit(request.host_url).hostname not in ('localhost', '127.0.0.1', '::1')
             or request.headers.get('Origin') != request.host_url.rstrip('/')):
@@ -90,6 +94,14 @@ def _camera_call(method):
 def camera_start():
     from kiosk.browser import CameraRequestError
     try:
+        if current_app.config.get('SETUP_ENABLED'):
+            from services.setup_readiness import require_capture_configuration
+            try:
+                require_capture_configuration()
+            except ValueError:
+                return _camera_error('not_ready', 409)
+            from services.setup_camera import browser_runtime
+            browser_runtime(preview=False)
         return jsonify(current_app.extensions['browser_camera'].start(session['csrf_token'], request.headers['Origin']))
     except CameraRequestError as exc:
         return _camera_error(exc.code, exc.status)

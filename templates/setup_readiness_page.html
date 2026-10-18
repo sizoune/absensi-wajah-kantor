@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Kesiapan perangkat{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Kesiapan perangkat</h1>
+  {% include 'setup_readiness.html' %}
+  {% include 'setup_camera.html' %}
+  <p><a href="{{ url_for('setup.models_page') }}">Periksa dan coba lagi model</a></p>
+  <p><a href="{{ url_for('kiosk.page') }}">Buka kios absensi</a></p>
+</section>
+{% endblock %}

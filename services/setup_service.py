@@ -148,6 +148,8 @@ def initialize_setup(overrides):
     db.metadata.create_all(db.engine, tables=[User.__table__, AuditLog.__table__, SetupState.__table__])
     state = db.session.get(SetupState, 1)
     if state is None:
+        if new_storage:
+            app.config['LIVENESS_MODE'] = 'passive'
         try:
             validate_attendance_config(app.config)
             complete = db.session.execute(db.select(User.id).where(User.role == 'admin')).first() is not None

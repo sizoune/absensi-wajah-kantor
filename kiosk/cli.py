@@ -94,6 +94,13 @@ def register_kiosk_commands(app):
         from services.setup_service import setup_required
         if setup_required():
             raise click.ClickException('Selesaikan setup perangkat sebelum memulai capture.')
+        from services.setup_readiness import require_capture_configuration, setup_managed
+        try:
+            require_capture_configuration(enrollment=False)
+            if setup_managed() and app.config.get('CAMERA_SOURCE') != 'native':
+                raise ValueError('Kamera browser digunakan. Buka kios di browser dan berikan izin kamera.')
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
         import cv2
 
         from camera import webcam
@@ -125,6 +132,15 @@ def register_kiosk_commands(app):
             if eoffice:
                 detector, quality, liveness, live_settings, integration = load_eoffice(app)
                 embedder, matcher_factory = None, None
+                if setup_managed():
+                    # The retrying launcher refreshes empty enrollment before opening any camera.
+                    status = integration['sync_worker'].run_once()
+                    if status.auth != 'ok' or status.clock != 'ok' or status.storage != 'ok':
+                        raise click.ClickException('Akses, waktu, atau penyimpanan belum siap. Capture ditahan.')
+                    try:
+                        require_capture_configuration()
+                    except ValueError as exc:
+                        raise click.ClickException(str(exc)) from exc
             else:
                 detector, embedder, quality = _load_models(app)
                 liveness, live_settings = _load_liveness(app)

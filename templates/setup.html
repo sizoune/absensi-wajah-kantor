@@ -9,7 +9,7 @@
   {% set labels = {'storage': 'Penyimpanan dan kunci enkripsi', 'admin': 'Admin lokal',
                    'organization': 'SKPD dan cakupan perangkat', 'models': 'Model pengenalan',
                    'snapshot': 'Snapshot enrollment', 'camera': 'Pemeriksaan kamera'} %}
-  <ul>{% for step in status.pending %}<li>{{ labels[step] }}</li>{% endfor %}</ul>
+  <ul>{% for step, label in labels.items() %}<li data-setup-step="{{ step }}"{% if step not in status.pending %} hidden{% endif %}>{{ label }}</li>{% endfor %}</ul>
   {% if not status.steps.storage %}
   <p role="alert">Kunci enkripsi belum tersedia atau tidak dapat dibaca. Pulihkan kunci asli dari cadangan; data lama tetap disimpan.</p>
   {% endif %}
@@ -27,6 +27,8 @@
   {% include 'setup_organization.html' %}
   {% endif %}
   {% include "setup_models.html" %}
+  {% include "setup_camera.html" %}
+  {% include "setup_readiness.html" %}
   {% else %}
   <p>Gunakan kode setup dari perintah lokal <code>flask --app app setup-code</code>.</p>
   <form method="post" class="form">

@@ -1,0 +1,19 @@
+{% set camera_preview = camera_preview|default(false) %}
+<section id="browser-camera" class="browser-camera" aria-labelledby="browser-camera-label"
+  data-csrf-token="{{ csrf_token() }}"
+  data-start-url="{{ url_for('setup.browser_preview', action='start') if camera_preview else url_for('kiosk.camera_start') }}"
+  data-challenge-url="{{ url_for('setup.browser_preview', action='challenge') if camera_preview else url_for('kiosk.camera_challenge') }}"
+  data-frame-url="{{ url_for('setup.browser_preview', action='frame') if camera_preview else url_for('kiosk.camera_frame') }}"
+  data-stop-url="{{ url_for('setup.browser_preview', action='stop') if camera_preview else url_for('kiosk.camera_stop') }}">
+  <h2 id="browser-camera-label">{% if camera_preview or config.ATTENDANCE_MODE != 'eoffice' %}Uji pratinjau kamera — tidak mencatat absensi{% elif config.EOFFICE_TEST_MODE %}Gambar diproses untuk uji pengenalan{% else %}Gambar diproses oleh layanan e-office{% endif %}</h2>
+  <p>Browser harus tetap terbuka dan izin kamera diberikan agar kamera aktif.</p>
+  <label for="browser-camera-device">Kamera browser</label>
+  <select id="browser-camera-device"><option value="">Kamera bawaan browser</option></select>
+  <p id="browser-camera-status" role="status" aria-live="polite" aria-atomic="true">Kamera belum diaktifkan. Tekan Aktifkan kamera untuk memberi izin.</p>
+  <div class="browser-camera-controls">
+    <button id="browser-camera-start" type="button" aria-controls="browser-camera-video">Aktifkan kamera</button>
+    <button id="browser-camera-stop" type="button" aria-controls="browser-camera-video" disabled>Matikan kamera</button>
+  </div>
+  <video id="browser-camera-video" aria-label="Pratinjau kamera lokal" autoplay muted playsinline hidden></video>
+  <noscript>Aktifkan JavaScript di browser untuk menggunakan kamera.</noscript>
+</section>
