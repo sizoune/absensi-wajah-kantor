@@ -7,8 +7,7 @@ REM ===================================================================
 cd /d "%~dp0.."
 if not exist instance mkdir instance
 echo ==== %date% %time% ==== >> instance\backup_log.txt
-call .venv\Scripts\activate.bat
-flask --app app backup-create >> instance\backup_log.txt 2>&1
+".venv\Scripts\python.exe" -m flask --app app backup-create >> instance\backup_log.txt 2>&1
 if errorlevel 1 (
   echo BACKUP GAGAL - periksa MySQL dan pesan di atas >> instance\backup_log.txt
   exit /b 1

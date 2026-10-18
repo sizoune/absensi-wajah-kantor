@@ -14,6 +14,11 @@ Hanya satu sesi kamera browser yang dapat aktif pada satu instalasi. Browser ked
 
 ## Persiapan dan model
 
+Perangkat Windows baru memakai [bootstrap dan wizard Windows](INSTALASI.md),
+dengan satu peluncur saat login, kode setup pada konsol lokal, dan penyimpanan
+privat. Pemulihan password tidak membuka wizard kembali; gunakan perintah lokal
+pada [panduan keamanan](KEAMANAN.md#pemulihan-password-admin).
+
 Ikuti `docs/kiosk/operations.md` di repo API untuk audit skema, urutan migrasi kiosk lalu sidecar, barrier revision/coverage, clean-day/remediasi skeleton legacy, ID instansi terverifikasi, TLS, NTP dan credential. Skema/ID dari fixture bukan konfigurasi produksi. Uji fisik boleh memakai e-office staging berizin dalam dua mode yang sudah ada (`standalone` dan `eoffice`); tidak ada mode dry-run tambahan.
 
 Pada Windows kios, konfirmasi arsitektur Python 3.11 x64 terlebih dahulu. Dalam virtualenv terisolasi:

@@ -36,6 +36,14 @@ pemilihan dan lisensi: [docs/MODEL_DECISION.md](docs/MODEL_DECISION.md).
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Hasil uji performa |
 | [docs/DOCKER.md](docs/DOCKER.md) | Wizard Docker, penyimpanan persisten, kamera browser dan reverse proxy HTTPS |
 
+## Pemasangan Windows
+
+Ekstrak ZIP rilis, lalu klik dua kali `scripts\pasang_windows.bat`. Bootstrap
+menyiapkan runtime privat, dependensi dan penyimpanan, membuka wizard dengan
+kode lokal, serta memasang satu shortcut untuk login Windows. Untuk membuka
+lagi, gunakan `scripts\jalankan_aplikasi.bat`. Langkah pemasangan, reinstall,
+pemulihan, dan batas pengujian fisik ada di [docs/INSTALASI.md](docs/INSTALASI.md).
+
 ## Memasang dengan Docker
 
 Jalankan `docker compose up -d --build`, lalu

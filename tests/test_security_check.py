@@ -106,7 +106,7 @@ def test_cli_security_check_gagal_jika_ada_yang_perlu(app, admin_user, monkeypat
 # ---------------------------------------------------------------- skrip & dokumen
 
 @pytest.mark.parametrize("name", ["jalankan_server.bat", "jalankan_kios.bat", "buka_kios.bat",
-                                  "backup_harian.bat"])
+                                  "backup_harian.bat", "pasang_windows.bat", "jalankan_aplikasi.bat"])
 def test_skrip_windows_ada_dan_berakhir_crlf(name):
     data = (ROOT / "scripts" / name).read_bytes()
     assert b"\r\n" in data and b"\n" not in data.replace(b"\r\n", b"")
