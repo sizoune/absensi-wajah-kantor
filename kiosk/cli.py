@@ -39,6 +39,8 @@ class EofficeDependencies(TypedDict):
 
 def load_eoffice(app: Flask) -> tuple[YuNetDetector, QualitySettings, PassiveLiveness, LivenessSettings, EofficeDependencies]:
     """Load only e-office assets; two connections separate inference from sync I/O."""
+    if app.config.get('SETUP_REQUIRED', False):
+        raise ValueError('Selesaikan setup perangkat sebelum memulai integrasi.')
     from integration.client import EofficeClient
     from integration.clock import TrustedClock
     from integration.store import IntegrationStore
@@ -85,6 +87,9 @@ def register_kiosk_commands(app):
     @friendly_db_errors
     def kiosk_run(preview):
         """Menjalankan layanan kamera yang MENCATAT ABSENSI otomatis."""
+        from services.setup_service import setup_required
+        if setup_required():
+            raise click.ClickException('Selesaikan setup perangkat sebelum memulai capture.')
         import cv2
 
         from camera import webcam

@@ -84,4 +84,4 @@ def test_sesi_absensi_ganda_ditolak_database(app):
 def test_tanpa_secret_key_aplikasi_menolak_jalan(monkeypatch):
     monkeypatch.setattr(config.ProductionConfig, "SECRET_KEY", None)
     with pytest.raises(RuntimeError):
-        create_app("production")
+        create_app("production", overrides={'ATTENDANCE_MODE': 'standalone'})

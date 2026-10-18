@@ -88,7 +88,7 @@ def load_keyring(path=None):
     return active, keys
 
 
-def _write_keyring(path, active, keys):
+def _write_keyring(path, active, keys, *, initial=False):
     """Menulis file kunci secara atomik (tulis ke file sementara lalu ganti)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -96,11 +96,14 @@ def _write_keyring(path, active, keys):
         "active_version": active,
         "keys": {str(v): base64.b64encode(k).decode("ascii") for v, k in sorted(keys.items())},
     }
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    tmp = path if initial else path.with_suffix(path.suffix + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | (os.O_EXCL if initial else os.O_TRUNC), 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2)
-    os.replace(tmp, path)
+        fh.flush()
+        os.fsync(fh.fileno())
+    if not initial:
+        os.replace(tmp, path)
 
 
 def keyring_status():
@@ -120,7 +123,10 @@ def generate_keyring():
             "File kunci sudah ada dan tidak akan ditimpa. "
             "Menimpa kunci membuat semua templat wajah tidak bisa dibaca lagi."
         )
-    _write_keyring(path, 1, {1: secrets.token_bytes(KEY_SIZE)})
+    try:
+        _write_keyring(path, 1, {1: secrets.token_bytes(KEY_SIZE)}, initial=True)
+    except FileExistsError as exc:
+        raise BiometricKeyError('File kunci sudah ada dan tidak akan ditimpa.') from exc
     return path
 
 

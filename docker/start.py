@@ -1,34 +1,9 @@
 """Single-process container entry point; camera ownership stays in this process."""
 import logging
-import os
 from pathlib import Path
-import re
-import secrets
 import signal
 
-
-def load_secret(path):
-    try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        pass
-    else:
-        with os.fdopen(descriptor, 'w', encoding='ascii') as file:
-            file.write(secrets.token_hex(32) + '\n')
-            file.flush()
-            os.fsync(file.fileno())
-        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    try:
-        value = path.read_text(encoding='ascii').strip()
-    except UnicodeError as exc:
-        raise RuntimeError(f'{path}: secret_key rusak; pulihkan cadangan, jangan buat ulang.') from exc
-    if not re.fullmatch(r'[0-9a-f]{64}', value):
-        raise RuntimeError(f'{path}: secret_key rusak; pulihkan cadangan, jangan buat ulang.')
-    return value
+from services.setup_service import load_secret
 
 
 def create_container_app(instance_dir=None):
@@ -42,7 +17,7 @@ def create_container_app(instance_dir=None):
     if not secret_path.exists() and any((instance_dir / name).exists()
                                         for name in ('app.sqlite3', 'eoffice.sqlite3', 'eoffice-test.sqlite3')):
         raise RuntimeError(f'{secret_path}: secret_key hilang; pulihkan cadangan, jangan buat ulang.')
-    app = create_app('production', overrides={
+    app = create_app('production', instance_path=str(instance_dir), overrides={
         'SECRET_KEY': load_secret(secret_path),
         'CAMERA_SOURCE': 'browser',
         'SQLALCHEMY_DATABASE_URI': f'sqlite:///{instance_dir}/app.sqlite3',
@@ -77,7 +52,7 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     try:
-        if app.config['ATTENDANCE_MODE'] == 'eoffice':
+        if app.config['ATTENDANCE_MODE'] == 'eoffice' and not app.config.get('SETUP_REQUIRED', False):
             app.extensions['browser_camera'].start_service()
         server = create_http_server(app)
         logging.info('Browser kiosk listening on port 5000; mode=%s', app.config['ATTENDANCE_MODE'])
