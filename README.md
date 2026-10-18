@@ -34,6 +34,16 @@ pemilihan dan lisensi: [docs/MODEL_DECISION.md](docs/MODEL_DECISION.md).
 | [docs/BACKUP.md](docs/BACKUP.md) | Backup harian, uji pemulihan, pemulihan bencana, pengosongan data uji |
 | [docs/MODEL_DECISION.md](docs/MODEL_DECISION.md) | Pemilihan model, lisensi, kalibrasi ambang dan anti-foto |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Hasil uji performa |
+| [docs/DOCKER.md](docs/DOCKER.md) | Uji kamera browser Mac dengan Docker: pratinjau tanpa absensi dan konfigurasi staging e-office |
+
+## Uji kamera Mac dengan Docker
+
+Dari folder ini, jalankan `docker compose up`, buka
+[kios localhost](http://localhost:5000/kiosk/), lalu tekan **Aktifkan kamera**.
+Default adalah pratinjau **tanpa mencatat absensi**; tidak memerlukan model,
+credential, Python host atau pemetaan USB. Docker Engine/Compose harus aktif.
+Integrasi staging e-office perlu konfigurasi eksplisit; persiapan, penghentian
+tanpa menghapus volume, dan batas penerimaan ada di [docs/DOCKER.md](docs/DOCKER.md).
 
 ## Mulai cepat (pengembangan)
 

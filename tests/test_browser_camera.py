@@ -274,6 +274,44 @@ def test_eoffice_reuses_worker_and_timestamps_challenge_before_decode(browser_ap
     SingleInstanceLock(browser_app.config['KIOSK_LOCK_FILE']).acquire().release()
 
 
+def test_eoffice_service_retries_existing_queue_without_camera_activation(browser_app, tmp_path, monkeypatch):
+    import json
+    from integration.store import IntegrationStore
+    from test_eoffice_sync import EVENT
+
+    runtime, _, _, pending, resources, _ = eoffice_runtime(browser_app, tmp_path, monkeypatch)
+    original = json.dumps(EVENT).encode() + b'\n'
+    with_store = IntegrationStore(tmp_path / 'integration.sqlite3', bytes(32))
+    with_store.enqueue(original)
+    with_store.close()
+    attempted = threading.Event()
+    sent = []
+
+    class Offline:
+        def snapshot(self):
+            raise TimeoutError('test remote unavailable')
+
+        def send(self, body):
+            sent.append(body)
+            attempted.set()
+            raise TimeoutError('test remote unavailable')
+
+    load = __import__('kiosk.cli', fromlist=['load_eoffice']).load_eoffice
+
+    def resume(app):
+        detector, quality, liveness, settings, integration = load(app)
+        integration['sync_worker'].client = Offline()
+        return detector, quality, liveness, settings, integration
+
+    monkeypatch.setattr('kiosk.cli.load_eoffice', resume)
+    runtime.start_service()
+    runtime.start_service()
+    assert attempted.wait(2), 'persisted events did not resume without POST camera/start'
+    assert sent[0] == original and pending()[0].body == original
+    assert not runtime.active and runtime._owner is None and runtime._challenge is None
+    assert resources[0][1]._thread.is_alive()
+
+
 def test_inference_expiring_after_liveness_never_enqueues(browser_app, tmp_path, monkeypatch):
     runtime, now, scene, pending, _, _ = eoffice_runtime(browser_app, tmp_path, monkeypatch)
     client = browser_app.test_client()

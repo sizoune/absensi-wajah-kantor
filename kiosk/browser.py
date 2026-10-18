@@ -133,25 +133,35 @@ class BrowserCamera:
                 or cookie != self._cookie or origin != self._origin):
             raise CameraRequestError('owner', 403)
 
+    def _ensure_started(self):
+        if self._shutdown.is_set() or self._fatal:
+            raise CameraRequestError('unavailable', 503)
+        if self._thread is None:
+            try:
+                self._process_lock.acquire()
+            except AlreadyRunning as exc:
+                raise CameraRequestError('busy', 409) from exc
+            self._thread = Thread(target=self._run, name='browser-camera', daemon=True)
+            try:
+                self._thread.start()
+            except BaseException:
+                self._thread = None
+                self._process_lock.release()
+                raise
+
+    def start_service(self):
+        """Resume configured integration sync without granting camera ownership."""
+        with self._lock:
+            self._ensure_started()
+        if not self._ready.wait(30) or self._fatal:
+            raise CameraRequestError('unavailable', 503)
+
     def start(self, cookie, origin):
         with self._lock:
             self._expire()
             if self._owner or self._busy:
                 raise CameraRequestError('busy', 409)
-            if self._shutdown.is_set() or self._fatal:
-                raise CameraRequestError('unavailable', 503)
-            if self._thread is None:
-                try:
-                    self._process_lock.acquire()
-                except AlreadyRunning as exc:
-                    raise CameraRequestError('busy', 409) from exc
-                self._thread = Thread(target=self._run, name='browser-camera', daemon=True)
-                try:
-                    self._thread.start()
-                except BaseException:
-                    self._thread = None
-                    self._process_lock.release()
-                    raise
+            self._ensure_started()
             self._owner = secrets.token_urlsafe(32)
             self._cookie, self._origin = cookie, origin
             self._started_at = self._last_activity = self.clock()

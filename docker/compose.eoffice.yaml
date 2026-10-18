@@ -1,0 +1,24 @@
+services:
+  camera:
+    environment:
+      ATTENDANCE_MODE: eoffice
+      LIVENESS_MODE: passive
+      EOFFICE_BASE_URL: ${EOFFICE_BASE_URL:?Isi URL HTTPS staging di docker/compose.env}
+      EOFFICE_DEVICE_TOKEN: ${EOFFICE_DEVICE_TOKEN:?Isi token perangkat staging di docker/compose.env}
+      MODEL_DIR: /run/models
+      EOFFICE_AURAFACE_PATH: /run/models/glintr100.onnx
+      EOFFICE_PERIOCULAR_PATH: /run/models/mobilefacenet.tflite
+      EOFFICE_KEY_FILE: /run/keys/eoffice-key.json
+    volumes:
+      - type: bind
+        source: ${EOFFICE_HOST_MODEL_DIR:?Isi folder model absolut di docker/compose.env}
+        target: /run/models
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EOFFICE_HOST_KEY_FILE:?Isi file kunci absolut di luar proyek di docker/compose.env}
+        target: /run/keys/eoffice-key.json
+        read_only: true
+        bind:
+          create_host_path: false

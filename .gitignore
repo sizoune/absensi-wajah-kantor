@@ -6,6 +6,7 @@ __pycache__/
 
 # Rahasia dan konfigurasi lokal
 .env
+docker/compose.env
 instance/
 
 # Pengujian

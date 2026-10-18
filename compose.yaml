@@ -1,0 +1,24 @@
+name: eoffice-camera
+services:
+  camera:
+    build: .
+    ports:
+      - "127.0.0.1:${CAMERA_HOST_PORT:-5000}:5000"
+    environment:
+      APP_ENV: production
+      CAMERA_SOURCE: browser
+      ATTENDANCE_MODE: standalone
+    volumes:
+      - instance:/app/instance
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=2).close()"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+volumes:
+  instance:
