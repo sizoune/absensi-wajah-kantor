@@ -1,63 +1,148 @@
-# Uji kamera browser di Mac dengan Docker
+# Memasang kios browser dengan Docker
 
-Jalankan dari folder `camera` ini, dengan Docker Engine dan Docker Compose yang
-aktif. Python di host dan pemetaan perangkat USB tidak diperlukan. Kamera
-dibuka oleh browser Mac setelah tombol **Aktifkan kamera** ditekan.
+Docker Engine dan Compose harus aktif. Jalankan dari akar proyek; Python di
+host dan pemetaan USB tidak diperlukan. Build menyiapkan Python 3.11 dan
+seluruh dependensi yang dikunci di `requirements-eoffice.txt`. Model, token,
+kunci dan data perangkat tidak dimasukkan ke image.
 
-## Pratinjau lokal
+## Pemasangan pertama di komputer yang sama
 
 ```sh
-docker compose up
+docker compose up -d --build
+docker compose exec camera flask --app docker.start:create_container_app setup-code
 ```
 
-Buka [kios localhost](http://localhost:5000/kiosk/), tekan **Aktifkan kamera**,
-lalu izinkan kamera di browser/macOS. Tekan **Matikan kamera** untuk melepas
-kamera. Default menampilkan **Uji pratinjau kamera — tidak mencatat absensi**:
-JPEG diuji melalui browser → Flask, tanpa pengenalan, enrollment atau pencatatan
-absensi. Tidak perlu file env, model, kunci biometrik, token atau server e-office.
-Browser tidak meminta izin kamera sebelum tombol ditekan.
+Perintah kedua menampilkan kode setup lokal sekali pakai. Buka
+[setup localhost](http://localhost:5000/setup), masukkan kode, buat admin lokal,
+lalu masukkan token perangkat yang diberikan admin server. Pilih SKPD dan
+cakupan yang diizinkan token. Wizard mengambil snapshot, menyiapkan dan
+memverifikasi model, serta menyediakan pratinjau kamera tanpa mencatat absensi.
+Penyimpanan dan kunci awal dibuat otomatis hanya untuk instalasi baru. Operator
+tidak perlu memasukkan path model, SQLite, atau kunci.
 
-Build pertama mengunduh image Python 3.11 dan seluruh dependensi yang dikunci di
-`requirements-eoffice.txt` (termasuk `requirements.txt`). Bobot model dan data
-tidak diunduh/dimasukkan ke image. Sesudah mengubah sumber, gunakan
-`docker compose up --build`. Versi paket tidak diganti untuk membuat build lolos.
+Kode setup tidak dimasukkan ke URL atau log startup. Sebelum setup selesai,
+jalankan kembali perintah lokal yang sama bila kode hilang atau layanan sudah
+dimulai ulang; kode baru mencabut akses setup sebelumnya tanpa menghapus
+kemajuan/admin. Setelah selesai, wizard dan penerbitan kode ditutup. Perbaikan
+model/kamera tetap tersedia melalui **Kesiapan perangkat** dengan login admin.
+Snapshot kosong boleh menyelesaikan setup, tetapi capture menunggu enrollment
+valid, model yang cocok, kamera, izin perangkat dan waktu server baru.
+
+Sesudah menekan **Selesaikan setup**, buka kios dan tekan **Aktifkan kamera**,
+lalu izinkan kamera di browser/OS. Kamera memerlukan browser terbuka serta izin
+setiap kali browser memintanya. Restart container memulihkan layanan/sync,
+sedangkan capture tetap menunggu aktivasi browser. Hanya satu sesi kamera
+aktif. Bila tab/perangkat lama masih memiliki sesi, admin lokal dapat memakai
+**Hentikan sesi kamera lama**, lalu mengaktifkan sesi baru.
 
 Jika port 5000 terpakai:
 
 ```sh
-CAMERA_HOST_PORT=5001 docker compose up
+CAMERA_HOST_PORT=5001 docker compose up -d --build
 ```
 
-Buka `http://localhost:5001/kiosk/`. Publish selalu pada `127.0.0.1`; gunakan
-browser di Mac yang sama, bukan alamat LAN. Izin kamera/HTTPS untuk perangkat
-lain tidak termasuk jalur uji ini.
+Buka `http://localhost:5001/setup`. Port selalu diterbitkan pada `127.0.0.1`;
+alamat IP LAN melalui HTTP ditolak. Untuk komputer lain gunakan reverse proxy
+HTTPS instansi seperti bagian berikut.
 
-Pemeriksaan dan penghentian:
+## Akses jaringan melalui HTTPS instansi
+
+Instansi menyediakan domain, sertifikat TLS yang dipercaya browser, dan reverse
+proxy. Tidak ada penerbitan sertifikat otomatis. Backend tetap dibatasi pada
+loopback host. Contoh Nginx ada di
+[docker/nginx.example.conf](../docker/nginx.example.conf); sesuaikan domain dan
+path sertifikat. Proxy harus mempertahankan `Host` asli (termasuk port bila
+bukan 443), menimpa `X-Forwarded-Proto` menjadi `https`, dan menghapus header
+forwarding dari klien. Jangan meneruskan nilai header klien secara bebas.
+
+```sh
+cp -n docker/proxy.env.example docker/proxy.env
+```
+
+Isi `KIOSK_PUBLIC_ORIGIN` dengan **origin HTTPS persis**, misalnya
+`https://kios.instansi.go.id` (tanpa path atau garis miring akhir), dan
+`KIOSK_TRUSTED_PROXY_IP` dengan **satu IP peer proxy yang benar-benar terlihat
+oleh container**. Pada Docker Desktop alamat peer koneksi host dapat berbeda
+dari `127.0.0.1`; administrator jaringan harus memverifikasinya. Wildcard dan
+CIDR tidak diterima. Gunakan kedua nilai bersamaan.
+
+```sh
+docker compose --env-file docker/proxy.env -f compose.yaml -f docker/compose.https.yaml up -d --build
+docker compose --env-file docker/proxy.env -f compose.yaml -f docker/compose.https.yaml exec camera flask --app docker.start:create_container_app setup-code
+```
+
+Buka `https://kios.instansi.go.id/setup`, lalu jalankan wizard yang sama. Gunakan
+file/opsi Compose yang sama untuk perintah berikutnya agar konfigurasi proxy
+konsisten. Waitress hanya mempercayai `X-Forwarded-Proto` dari IP tersebut;
+`X-Forwarded-Host`, `X-Forwarded-For` dan `Forwarded` tidak menentukan origin.
+Akses browser hanya menerima localhost atau origin HTTPS yang dikonfigurasi.
+Origin kamera harus sama persis dan token CSRF tetap wajib. Cookie sesi memakai
+`Secure` pada HTTPS; localhost HTTP tetap dapat menjalankan setup. Konfigurasi
+`SESSION_COOKIE_SECURE` eksplisit yang lebih ketat tetap dihormati.
+
+Jika proxy terpisah dalam container, tempatkan backend pada jaringan privat
+bersama dan gunakan IP proxy tetap sebagai peer tepercaya. Jangan membuka port
+backend ke LAN/Internet atau mempercayai semua peer. TLS API eOffice tetap
+diverifikasi secara independen; pengaturan proxy ini tidak menonaktifkannya.
+Lihat [konfigurasi proxy Waitress](https://docs.pylonsproject.org/projects/waitress/en/stable/reverse-proxy.html).
+
+## Penyimpanan, restart dan pemulihan lokal
 
 ```sh
 docker compose ps
 curl --fail http://localhost:5000/health
 docker compose logs --tail=50 camera
+docker compose restart camera
 docker compose down
 ```
 
-Ctrl+C pada `up` juga menghentikan layanan. Startup memakai satu proses
-Waitress sebagai PID 1. SIGTERM/SIGINT menjalankan cleanup `BrowserCamera.close`;
-batas join Waitress dan kamera berjumlah paling lama sekitar 12 detik, dengan
-grace period Compose 20 detik. Tidak ada proses `kiosk-run` kedua.
+Kebijakan `restart: unless-stopped` memulai layanan kembali ketika Docker Engine
+aktif setelah host hidup, kecuali layanan sengaja dihentikan. Aktifkan Docker
+Engine saat login/boot sesuai kebijakan komputer. Startup memakai satu proses
+Waitress; tidak ada `kiosk-run` kedua. SIGTERM/SIGINT menguras runtime kamera dan
+sync sebelum keluar, dengan grace period Compose 20 detik. Frame lama tidak
+diputar ulang setelah browser/container terputus.
 
-Volume `eoffice-camera_instance` menyimpan `secret_key`, SQLite `app.sqlite3`,
-status/kunci proses kios, dan antrean `eoffice.sqlite3` atau `eoffice-test.sqlite3`
-bila integrasi diaktifkan. `secret_key` dibuat sekali dengan izin 0600 dan dipakai lagi setelah
-restart/recreate. File yang kosong/rusak menghentikan startup; jangan hapus untuk
-memaksa startup berhasil. Pulihkan cadangan yang benar. Tidak ada reset, rekey,
-rotasi atau migrasi destruktif otomatis. Startup hanya membuat metadata
-`users`/`audit_logs` yang belum ada; akun admin dan tabel absensi standalone tidak
-dibuat. Ini bukan instalasi aplikasi admin standalone lengkap.
+Volume `eoffice-camera_instance` (atau `<nama-proyek>_instance` bila memakai
+`-p`) menyimpan secret sesi, konfigurasi terenkripsi, admin lokal, kemajuan,
+kunci biometrik, model, snapshot dan antrean integrasi terenkripsi. Data berada
+di luar umur container dan dipakai kembali setelah build/recreate. Startup
+menolak kunci yang hilang/rusak pada penyimpanan lama; tidak ada reset, rekey,
+rotasi atau migrasi destruktif otomatis.
 
 `docker compose down` mempertahankan volume. **Jangan tambahkan `-v` dan jangan
-hapus volume** bila berisi data/antrean. Backup antrean dan kunci integrasi
-mengikuti [EOFFICE.md](EOFFICE.md), saat layanan berhenti bersih.
+hapus volume** yang berisi data. Backup saat layanan berhenti bersih; simpan
+kunci asli terpisah sesuai [EOFFICE.md](EOFFICE.md). Pulihkan konfigurasi,
+secret dan kunci dari instalasi yang sama bersama antreannya. Jangan mengganti
+perangkat/token untuk mengirim antrean lama milik perangkat lain.
+
+Untuk password admin yang hilang, gunakan pemulihan lokal pada volume yang sama:
+
+```sh
+docker compose exec camera flask --app docker.start:create_container_app reset-admin-password
+```
+
+Perintah meminta pilihan admin dan password melalui terminal tanpa membuka
+wizard pertama kembali atau menghapus data. Lihat [KEAMANAN.md](KEAMANAN.md).
+
+Root `.env`, `production.env`, model, instance, dataset, cache dan fixture tidak
+masuk image karena konteks build memakai allowlist sumber. Compose default
+tidak meneruskan token, `SECRET_KEY` atau `DATABASE_URL` dari shell. Jangan
+menyalin rahasia ke checkout atau mencetak konfigurasi berisi token ke laporan.
+
+## Pratinjau tanpa integrasi
+
+Untuk pengujian transport kamera tanpa setup/token/model, pilih override
+pratinjau secara sengaja pada volume/proyek uji terpisah:
+
+```sh
+docker compose -p camera-preview -f compose.yaml -f docker/compose.preview.yaml up -d --build
+```
+
+Buka [kios localhost](http://localhost:5000/kiosk/). Mode menampilkan
+**Uji pratinjau kamera — tidak mencatat absensi** dan tidak menjalankan pekerja
+absensi. Hentikan dengan opsi `-p` dan `-f` yang sama; jangan menggunakan volume
+perangkat operasional untuk berganti mode uji.
 
 ## Integrasi e-office staging: persiapan satu kali
 
@@ -75,8 +160,9 @@ e-office baru atau melakukan enrollment ulang.
    mengganti model, atau menurunkan ambang. SFace tidak dipakai oleh integrasi ini.
 2. Sediakan keyring lokal valid **di luar proyek**. Untuk antrean yang sudah ada,
    gunakan kunci aslinya. Pembuatan awal keyring baru mengikuti prosedur eksplisit
-   di EOFFICE.md saat layanan berhenti; startup tidak pernah membuat keyring
-   biometrik. Simpan backup kunci terpisah dari backup antrean. Pastikan UID 1000
+   di EOFFICE.md saat layanan berhenti; jalur konfigurasi manual ini memakai
+   keyring yang disediakan operator. Simpan backup kunci terpisah dari backup
+   antrean. Pastikan UID 1000
    di container dapat membaca model/keyring dengan hak akses operator yang tepat.
 3. Buat konfigurasi khusus Docker, lalu edit nilainya:
 
@@ -127,7 +213,7 @@ Hentikan integrasi melalui wrapper yang sama:
 ./docker/eoffice-compose.sh down
 ```
 
-`docker compose up` berikutnya kembali ke pratinjau. Antrean integrasi tetap ada
+Compose default berikutnya memakai wizard/konfigurasi persisten perangkat. Antrean integrasi tetap ada
 tetapi tidak disinkronkan sampai konfigurasi integrasi dinyalakan lagi. Jangan
 mengganti perangkat/token/kunci untuk mengirim antrean lama milik perangkat lain.
 
@@ -154,7 +240,7 @@ Bundle berisi root sistem ditambah sertifikat CA uji publik; kunci privat CA/lea
 tetap hanya di server. Overlay uji menetapkan standar
 `SSL_CERT_FILE=/run/models/eoffice-test-ca-bundle.pem`, yang dibaca SSLContext
 default Python. Sertifikat leaf harus valid untuk hostname produksi di atas;
-verifikasi sertifikat dan hostname tetap aktif. Default pratinjau dan overlay
+verifikasi sertifikat dan hostname tetap aktif. Compose default dan overlay
 staging tidak menetapkan variabel CA ini.
 Placeholder IP pada contoh wajib diganti; IP langsung sebagai URL atau
 menonaktifkan verifikasi sertifikat bukan konfigurasi yang didukung:
@@ -171,7 +257,7 @@ Wrapper memakai overlay e-office ditambah `docker/compose.test.yaml`, menetapkan
 `ATTENDANCE_MODE=eoffice`, `EOFFICE_TEST_MODE=true`, `LIVENESS_MODE=passive`, dan
 menghapus lima variabel e-office di atas serta `EOFFICE_PRODUCTION_ORIGIN_IP`
 dari shell sebelum membaca
-`docker/compose.test.env`. Compose default tetap pratinjau dan wrapper staging
+`docker/compose.test.env`. Compose default memakai wizard perangkat dan wrapper staging
 tetap memakai mode resmi dengan `EOFFICE_TEST_MODE=false`.
 
 Kios menampilkan **Uji pengenalan kamera — tidak mencatat absensi resmi** pada

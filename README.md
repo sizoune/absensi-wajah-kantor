@@ -34,16 +34,17 @@ pemilihan dan lisensi: [docs/MODEL_DECISION.md](docs/MODEL_DECISION.md).
 | [docs/BACKUP.md](docs/BACKUP.md) | Backup harian, uji pemulihan, pemulihan bencana, pengosongan data uji |
 | [docs/MODEL_DECISION.md](docs/MODEL_DECISION.md) | Pemilihan model, lisensi, kalibrasi ambang dan anti-foto |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Hasil uji performa |
-| [docs/DOCKER.md](docs/DOCKER.md) | Kamera browser Mac dengan Docker: pratinjau, staging, dan uji produksi terisolasi tanpa absensi resmi |
+| [docs/DOCKER.md](docs/DOCKER.md) | Wizard Docker, penyimpanan persisten, kamera browser dan reverse proxy HTTPS |
 
-## Uji kamera Mac dengan Docker
+## Memasang dengan Docker
 
-Dari folder ini, jalankan `docker compose up`, buka
-[kios localhost](http://localhost:5000/kiosk/), lalu tekan **Aktifkan kamera**.
-Default adalah pratinjau **tanpa mencatat absensi**; tidak memerlukan model,
-credential, Python host atau pemetaan USB. Docker Engine/Compose harus aktif.
-Integrasi staging e-office perlu konfigurasi eksplisit; persiapan, penghentian
-tanpa menghapus volume, dan batas penerimaan ada di [docs/DOCKER.md](docs/DOCKER.md).
+Jalankan `docker compose up -d --build`, lalu
+`docker compose exec camera flask --app docker.start:create_container_app setup-code`.
+Buka [setup localhost](http://localhost:5000/setup) untuk membuat admin lokal,
+memasukkan token perangkat dan menyiapkan model/kamera. Docker menyiapkan
+runtime dan volume persisten; browser tetap perlu dibuka dan diberi izin kamera.
+Akses jaringan menggunakan reverse proxy HTTPS instansi. Langkah lengkap,
+pemulihan dan pratinjau terpisah ada di [docs/DOCKER.md](docs/DOCKER.md).
 
 ## Mulai cepat (pengembangan)
 

@@ -433,6 +433,9 @@ def create_app(config_name=None, overrides=None, instance_path=None):
         setup_service.initialize_setup(overrides or {})
     migrate.init_app(app, db)
     login_manager.init_app(app)
+    from services.browser_access import BrowserSessionInterface, protect_browser_access
+    app.session_interface = BrowserSessionInterface()
+    app.before_request(protect_browser_access)
     app.before_request(setup_service.hold_operational_requests)
     csrf.init_app(app)
 

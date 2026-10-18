@@ -8,6 +8,7 @@ __pycache__/
 .env
 docker/compose.env
 docker/compose.test.env
+docker/proxy.env
 instance/
 
 # Pengujian
