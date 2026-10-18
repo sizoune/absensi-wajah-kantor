@@ -61,7 +61,11 @@ def load_eoffice(app: Flask) -> tuple[YuNetDetector, QualitySettings, PassiveLiv
         raise ValueError('E-office requires passive liveness')
     active, keys = load_keyring(app.config['EOFFICE_KEY_FILE'])
     test_mode = app.config.get('EOFFICE_TEST_MODE', False)
-    client = EofficeClient(app.config['EOFFICE_BASE_URL'], app.config['EOFFICE_DEVICE_TOKEN'], test_mode=test_mode)
+    options = {'test_mode': test_mode}
+    if app.config.get('EOFFICE_SCOPE_TYPE') is not None:
+        options['scope'] = {key: app.config.get('EOFFICE_' + key.upper())
+                            for key in ('skpd_id', 'scope_type', 'subunit_id')}
+    client = EofficeClient(app.config['EOFFICE_BASE_URL'], app.config['EOFFICE_DEVICE_TOKEN'], **options)
     path = Path(app.instance_path) / ('eoffice-test.sqlite3' if test_mode else 'eoffice.sqlite3')
     frame_store = IntegrationStore(path, keys[active], test_mode=test_mode)
     worker_store = None

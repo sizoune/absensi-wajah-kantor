@@ -12,21 +12,39 @@
     <button type="submit" class="btn">Periksa token dan organisasi</button>
   </form>
   {% if organization_setup.organizations %}
-  <form method="post" action="{{ url_for('setup.organization_select') }}" class="form">
+  <form id="organization-scope-form" method="post" action="{{ url_for('setup.organization_select') }}" class="form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label for="skpd-id">SKPD yang diizinkan server</label>
     <select id="skpd-id" name="skpd_id" required>
       {% for organization in organization_setup.organizations %}
-      <option value="{{ organization.skpd_id }}">{{ organization.name }}</option>
+      <option value="{{ organization.skpd_id }}" {% if organization_setup.skpd_id == organization.skpd_id %}selected{% endif %}>{{ organization.name }}</option>
       {% endfor %}
     </select>
     <label for="scope-type">Cakupan perangkat</label>
-    <select id="scope-type" name="scope_type"><option value="all_skpd">Seluruh SKPD (termasuk semua subunit)</option></select>
+    {% set scope_labels = {'all_skpd': 'Seluruh SKPD (termasuk semua subunit)', 'parent': 'Induk/non-subunit', 'subunit': 'Subunit tertentu'} %}
+    <select id="scope-type" name="scope_type" required>
+      {% for organization in organization_setup.organizations %}
+      {% for scope in organization.scope_types %}
+      <option value="{{ scope }}" data-skpd-id="{{ organization.skpd_id }}" {% if organization_setup.scope_type == scope %}selected{% endif %}>{{ scope_labels[scope] }}</option>
+      {% endfor %}
+      {% endfor %}
+    </select>
+    <label for="subunit-id">Subunit (hanya untuk cakupan subunit tertentu)</label>
+    <select id="subunit-id" name="subunit_id">
+      <option value="">Pilih subunit tertentu</option>
+      {% for organization in organization_setup.organizations %}
+      {% for subunit in organization.subunits or [] %}
+      <option value="{{ subunit.subunit_id }}" data-skpd-id="{{ organization.skpd_id }}" {% if organization_setup.skpd_id == organization.skpd_id and organization_setup.subunit_id == subunit.subunit_id %}selected{% endif %}>{{ subunit.name }}</option>
+      {% endfor %}
+      {% endfor %}
+    </select>
     <button type="submit" class="btn">Simpan cakupan dan ambil enrollment</button>
   </form>
+  <script src="{{ url_for('static', filename='js/setup-organization.js') }}" defer></script>
   {% endif %}
   {% if status.steps.organization %}
-  <p>{{ organization_setup.name }} — Seluruh SKPD.</p>
+  {% set labels = {'all_skpd': 'Seluruh SKPD', 'parent': 'Induk/non-subunit', 'subunit': 'Subunit tertentu'} %}
+  <p>{{ organization_setup.name }} — {{ labels[organization_setup.scope_type] }}{% if organization_setup.subunit_name %}: {{ organization_setup.subunit_name }}{% endif %}.</p>
   {% if organization_setup.snapshot.empty %}
   <p role="status">Snapshot enrollment valid masih kosong. Konfigurasi tersimpan; perangkat belum siap mengenali wajah.</p>
   {% elif organization_setup.snapshot.available %}

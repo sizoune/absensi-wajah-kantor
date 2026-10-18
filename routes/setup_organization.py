@@ -45,9 +45,8 @@ def organization_status():
 @setup_access_required
 def organization_select():
     try:
-        if request.form.get('subunit_id') not in (None, ''):
-            raise ValueError('Seluruh SKPD tidak menggunakan subunit tertentu.')
-        organization.select_organization(request.form.get('skpd_id'), request.form.get('scope_type'))
+        organization.select_organization(request.form.get('skpd_id'), request.form.get('scope_type'),
+                                         request.form.get('subunit_id'))
     except FAILURES as error:
         return _failed(error)
     return redirect(url_for('setup.index'))
