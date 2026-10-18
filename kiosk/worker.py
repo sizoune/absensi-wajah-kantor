@@ -17,6 +17,7 @@ import logging
 import time
 import json
 import sqlite3
+from contextlib import nullcontext
 from queue import Empty
 from uuid import uuid4
 from typing import TYPE_CHECKING
@@ -78,7 +79,8 @@ class KioskWorker:
                  integration_store: IntegrationStore | None = None,
                  sync_worker: SyncWorker | None = None,
                  trusted_clock: TrustedClock | None = None,
-                 eoffice_models: EofficeModels | None = None):
+                 eoffice_models: EofficeModels | None = None,
+                 frame_guard=None):
         self.app = app
         self.camera = camera
         self.detector = detector
@@ -94,6 +96,7 @@ class KioskWorker:
         self.clock = clock
         self.wall_clock = wall_clock
         self.on_frame = on_frame
+        self.frame_guard = frame_guard
         # Tahap 4D: anti-foto. Tanpa pengaturan, gerbang dalam mode "off".
         self.liveness = liveness
         self.liveness_settings = liveness_settings or LivenessSettings(mode="off")
@@ -289,8 +292,10 @@ class KioskWorker:
         tracks, events = recognize_eoffice_frame(frame, self.detector, self.eoffice_models, self.gallery,
                                                  self.quality, self.tracker, now)
         self._queued_tracks.intersection_update(t.id for t in self.tracker.tracks)
-        for event in events:
-            self.handle_event(event)
+        # Browser capture may expire during inference; guard and enqueue share its session lock.
+        with self.frame_guard() if self.frame_guard else nullcontext():
+            for event in events:
+                self.handle_event(event)
         if tracks and not events and (any(t.confirmed_id is None for t in tracks)
                 or any(t.id in gate.rejected_tracks for t in tracks for gate in self.tracker.gates.values())):
             self._say_eoffice('uncertain')

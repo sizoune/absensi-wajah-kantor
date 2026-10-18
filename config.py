@@ -39,6 +39,8 @@ def _build_database_uri():
 
 
 def validate_attendance_config(config: Mapping[str, object]) -> None:
+    if config.get('CAMERA_SOURCE', 'native') not in ('native', 'browser'):
+        raise ValueError('CAMERA_SOURCE must be native or browser')
     mode = config.get('ATTENDANCE_MODE', 'standalone')
     if mode not in ('standalone', 'eoffice'):
         raise ValueError('ATTENDANCE_MODE must be standalone or eoffice')
@@ -95,6 +97,7 @@ class Config:
     BIOMETRIC_KEY_FILE = os.getenv("BIOMETRIC_KEY_FILE")
 
     # Kamera (Tahap 3). Backend "dshow" disarankan untuk Windows.
+    CAMERA_SOURCE = os.getenv('CAMERA_SOURCE', 'native')
     CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "0"))
     # Jika diisi (mis. C270), kamera dicari berdasarkan nama dan CAMERA_INDEX
     # hanya dipakai sebagai cadangan.
