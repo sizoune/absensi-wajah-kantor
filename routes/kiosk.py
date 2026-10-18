@@ -3,8 +3,6 @@ Halaman kios untuk karyawan (PRD 7.6, 10.3). Tidak memerlukan login.
 
 Kamera native tetap memakai status saja; sumber browser diaktifkan lewat konfigurasi.
 """
-from urllib.parse import urlsplit
-
 from flask import Blueprint, current_app, jsonify, render_template, request, session
 from flask_wtf.csrf import validate_csrf
 from flask_login import current_user
@@ -62,9 +60,10 @@ def protect_camera():
 
 
 def validate_camera_request(*, browser=True):
+    from services.browser_access import browser_origin_allowed
     if browser and current_app.config.get('CAMERA_SOURCE') != 'browser':
         return _camera_error('disabled', 404)
-    if (urlsplit(request.host_url).hostname not in ('localhost', '127.0.0.1', '::1')
+    if (not browser_origin_allowed()
             or request.headers.get('Origin') != request.host_url.rstrip('/')):
         return _camera_error('origin', 403)
     try:

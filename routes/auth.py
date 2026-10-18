@@ -115,6 +115,11 @@ def logout():
 @login_required
 def dashboard():
     """Dashboard kehadiran harian (Tahap 5A, FR-12)."""
+    if current_app.config['ATTENDANCE_MODE'] == 'eoffice':
+        from services.setup_service import setup_required
+        destination = ('setup.index' if setup_required() else 'setup.readiness_page'
+                       if current_app.config.get('SETUP_ENABLED') else 'kiosk.page')
+        return redirect(url_for(destination))
     from datetime import datetime, time
 
     from models import WEEKDAY_NAMES, Employee, FaceTemplate

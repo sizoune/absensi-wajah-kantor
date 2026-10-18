@@ -33,7 +33,7 @@
       unavailable: "Layanan kamera belum siap. Hubungi admin untuk memeriksa konfigurasi e-office dan model.",
       not_ready: "Perangkat belum siap absensi. Admin dapat memeriksa model, enrollment, dan kamera melalui Kesiapan perangkat.",
       csrf: "Sesi halaman kedaluwarsa. Muat ulang halaman sebelum mengaktifkan kamera.",
-      origin: "Buka halaman kamera melalui alamat localhost yang sama dengan server.",
+      origin: "Buka halaman kamera melalui localhost atau alamat HTTPS instansi yang dikonfigurasi.",
       frame_too_large: "Gambar kamera terlalu besar. Turunkan resolusi kamera, lalu aktifkan lagi.",
       invalid_frame: "Gambar kamera tidak dapat dibaca. Aktifkan kamera untuk mencoba lagi.",
       stale: "Pengiriman gambar terlalu lambat. Periksa koneksi, lalu aktifkan kamera lagi.",

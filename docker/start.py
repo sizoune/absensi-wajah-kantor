@@ -35,10 +35,14 @@ def create_container_app(instance_dir=None):
 def create_http_server(app):
     from waitress import create_server
 
+    proxy = app.config.get('KIOSK_TRUSTED_PROXY_IP')
+    options = ({'trusted_proxy': proxy, 'trusted_proxy_count': 1,
+                'trusted_proxy_headers': {'x-forwarded-proto'}} if proxy else {})
     return create_server(app, host='0.0.0.0', port=5000, threads=4,
                          max_request_body_size=524288, inbuf_overflow=1048576,
                          max_request_header_size=16384, connection_limit=32,
-                         channel_timeout=15, cleanup_interval=5)
+                         channel_timeout=15, cleanup_interval=5,
+                         clear_untrusted_proxy_headers=True, **options)
 
 
 def main():
