@@ -352,7 +352,7 @@ def test_untrusted_non_ascii_headers_fail_closed(browser_app, field):
     assert response.status_code == (403 if field == 'X-Camera-Owner' else 410)
 
 
-@pytest.mark.parametrize('pause', ['write_lock', 'encryption'])
+@pytest.mark.parametrize('pause', ['write_lock', 'reader_lock', 'encryption'])
 def test_expiry_during_queue_transaction_rolls_back_event(browser_app, tmp_path, monkeypatch, pause):
     import sqlite3
     runtime, now, scene, pending, resources, _ = eoffice_runtime(browser_app, tmp_path, monkeypatch)
@@ -365,15 +365,22 @@ def test_expiry_during_queue_transaction_rolls_back_event(browser_app, tmp_path,
     frame_store, _ = resources[0]
     now[0] = 10.3
     capture = challenge(client, auth)
-    if pause == 'write_lock':
+    if pause != 'encryption':
         entered, result = threading.Event(), []
         blocker = sqlite3.connect(tmp_path / 'integration.sqlite3')
-        blocker.execute('BEGIN IMMEDIATE')
-        frame_store._db.set_trace_callback(lambda sql: entered.set() if sql == 'BEGIN IMMEDIATE' else None)
+        blocker.execute('BEGIN IMMEDIATE' if pause == 'write_lock' else 'BEGIN')
+        if pause == 'reader_lock':
+            assert blocker.execute('PRAGMA journal_mode').fetchone()[0] == 'delete'
+            blocker.execute('SELECT * FROM events').fetchall()
+        def trace(sql):
+            if (pause == 'write_lock' and sql.startswith('BEGIN ')
+                    or pause == 'reader_lock' and sql in ('BEGIN EXCLUSIVE', 'COMMIT')):
+                entered.set()
+        frame_store._db.set_trace_callback(trace)
         request = threading.Thread(target=lambda: result.append(frame(client, capture, data=data)))
         request.start()
         try:
-            assert entered.wait(2), 'capture never reached the SQLite write-lock wait'
+            assert entered.wait(2), 'capture never reached the SQLite lock wait'
             now[0] += 3.1
         finally:
             blocker.rollback()
@@ -393,3 +400,56 @@ def test_expiry_during_queue_transaction_rolls_back_event(browser_app, tmp_path,
     assert response.status_code == 410
     assert response.json == {'ok': False, 'error': 'stale'}
     assert pending() == []
+
+
+def test_browser_queue_write_finishes_after_sync_reader_and_preserves_queued_bytes(browser_app, tmp_path, monkeypatch):
+    import json
+    from uuid import uuid4
+    from integration.store import IntegrationStore
+    from test_eoffice_sync import EVENT
+    runtime, now, scene, pending, resources, _ = eoffice_runtime(browser_app, tmp_path, monkeypatch)
+    client = browser_app.test_client()
+    auth = start(client)
+    data = cv2.imencode('.jpg', scene[-1])[1].tobytes()
+    for stamp in (10.1, 10.2):
+        now[0] = stamp
+        assert frame(client, challenge(client, auth), data=data).status_code == 200
+    frame_store, sync = resources[0]
+    reader_entered, release_reader, writer_entered = threading.Event(), threading.Event(), threading.Event()
+    original_decrypt = sync.store._decrypt
+    def delayed_read(payload, identity):
+        if identity.startswith('event:') and not reader_entered.is_set():
+            reader_entered.set()
+            assert release_reader.wait(3)
+        return original_decrypt(payload, identity)
+    monkeypatch.setattr(sync.store, '_decrypt', delayed_read)
+    existing = [json.dumps(dict(EVENT, event_id=str(uuid4()))).encode() + b'\n' for _ in range(2)]
+    seed = IntegrationStore(tmp_path / 'integration.sqlite3', bytes(32))
+    try:
+        for body in existing:
+            seed.enqueue(body)
+    finally:
+        seed.close()
+    sync.wake()
+    request, responses = None, []
+    try:
+        assert reader_entered.wait(2), 'sync did not read the existing encrypted events'
+        now[0] = 10.3
+        capture = challenge(client, auth)
+        frame_store._db.set_trace_callback(lambda sql: writer_entered.set() if sql.startswith('BEGIN ') else None)
+        request = threading.Thread(target=lambda: responses.append(frame(client, capture, data=data)))
+        request.start()
+        assert writer_entered.wait(2)
+        assert request.is_alive()
+    finally:
+        release_reader.set()
+        if request is not None:
+            request.join(3)
+        frame_store._db.set_trace_callback(None)
+    assert not request.is_alive()
+    assert responses[0].status_code == 200
+    retained = {entry.body for entry in pending()}
+    assert len(retained) == 3
+    assert set(existing) <= retained
+    event, = retained - set(existing)
+    assert json.loads(event)['occurred_at'] == '2026-10-14T07:24:59.300+08:00'

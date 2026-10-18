@@ -104,7 +104,8 @@ class IntegrationStore:
         event_id = _event_id(event.get('event_id'))
         identity = f'event:{event_id}'
         with self._lock, self._db:
-            self._db.execute('BEGIN IMMEDIATE')
+            # Wait for readers before accepting freshness; rollback-journal COMMIT must not wait later.
+            self._db.execute('BEGIN EXCLUSIVE' if validate_capture is not None else 'BEGIN IMMEDIATE')
             if validate_capture is not None:
                 validate_capture()
             row = self._db.execute('SELECT body FROM events WHERE event_id=?', (event_id,)).fetchone()
