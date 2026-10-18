@@ -241,3 +241,18 @@ def test_status_does_not_replay_recent_result_from_previous_mode(app, client, te
     view = client.get('/kiosk/status').json
     assert view['message'] is None
     assert view['online'] is False
+
+
+@pytest.mark.parametrize('test_mode,expected', [
+    (False, 'Sejak layanan dimulai: 7 hasil tersimpan.'),
+    (True, 'Uji sejak layanan dimulai: 7 hasil tersimpan.'),
+])
+def test_dashboard_labels_saved_count_with_its_official_or_trial_scope(app, auth_client, test_mode, expected):
+    app.config.update(ATTENDANCE_MODE='eoffice', EOFFICE_TEST_MODE=test_mode)
+    state = {'mode': 'eoffice', 'camera': 'ok', 'recorded': 7, 'employees': 1}
+    if test_mode:
+        state['purpose'] = 'camera_test'
+    KioskState(app.config['KIOSK_STATE_FILE']).publish(state)
+    response = auth_client.get('/admin')
+    assert response.status_code == 200
+    assert f'<p>{expected}</p>' in response.get_data(as_text=True)

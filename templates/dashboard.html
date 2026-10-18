@@ -86,7 +86,7 @@
   {% if kiosk_status.online %}
     {% if kiosk_status.camera == 'ok' %}
     <p><span class="badge badge-ok">Berjalan</span> Kamera aktif, {{ kiosk_status.employees }} karyawan dapat dikenali.</p>
-    {% if kiosk_status.recorded_this_run is defined %}<p>{{ kiosk_status.recorded_this_run }} hasil tersimpan sejak layanan dimulai.</p>{% endif %}
+    {% if kiosk_status.recorded_this_run is defined %}<p>{{ kiosk_status.recorded_scope }}: {{ kiosk_status.recorded_this_run }} hasil tersimpan.</p>{% endif %}
     {% else %}
     <p><span class="badge badge-off">Kamera bermasalah</span> {{ kiosk_status.detail }}</p>
     {% endif %}
