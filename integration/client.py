@@ -215,6 +215,25 @@ class EofficeClient:
             raise RequestFailure(code)
         return self._identity(value)
 
+    def verify_snapshot_ownership(self, snapshot_ids):
+        if self.test_mode:
+            raise ValueError('Operational recovery cannot use camera-test credentials')
+        if (type(snapshot_ids) is not list or not 1 <= len(snapshot_ids) <= 256
+                or any(type(value) is not str or UUID.fullmatch(value) is None for value in snapshot_ids)):
+            raise ValueError('Invalid retained snapshot references')
+        normalized = [value.lower() for value in snapshot_ids]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError('Duplicate retained snapshot references')
+        code, value, *_ = self._request(self._path + '/recovery/snapshots',
+            json.dumps({'snapshot_ids': normalized}, separators=(',', ':')).encode('utf-8'), 32 * 1024)
+        if code != 200:
+            raise RequestFailure(code)
+        if (set(value) != {'device', 'snapshot_ids'} or type(value['snapshot_ids']) is not list
+                or value['snapshot_ids'] != normalized):
+            raise ValueError('Incomplete retained snapshot ownership proof')
+        self._identity(value['device'])
+        return value
+
     def send(self, event_bytes: bytes) -> dict[str, JSONValue]:
         if type(event_bytes) is not bytes or len(event_bytes) > 16 * 1024:
             raise ValueError('Expected immutable bounded event bytes')

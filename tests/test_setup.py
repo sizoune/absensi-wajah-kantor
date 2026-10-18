@@ -156,7 +156,7 @@ def test_configuration_survives_restart_without_exposing_device_token(tmp_path, 
     assert secret.encode() not in (tmp_path / 'app.sqlite3').read_bytes()
 
 
-def legacy_installation(path):
+def legacy_installation(path, *, event_bytes=None):
     from extensions import db
     from integration.store import IntegrationStore
     key = bytes(range(32))
@@ -174,7 +174,7 @@ def legacy_installation(path):
     assert result.exit_code == 0, result.output
     snapshot = json.loads((Path(__file__).parent / 'fixtures/eoffice_snapshot.json').read_text())
     queue = IntegrationStore(path / 'eoffice.sqlite3', key)
-    body = b'{"event_id":"85f42b66-6a77-4c56-9efc-4231ff6eab42"}'
+    body = event_bytes if event_bytes is not None else b'{"event_id":"85f42b66-6a77-4c56-9efc-4231ff6eab42"}'
     queue.replace_snapshot(snapshot)
     queue.enqueue(body)
     queue.close()
