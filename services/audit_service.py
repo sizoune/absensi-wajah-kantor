@@ -15,6 +15,7 @@ LOGIN_SUCCESS = "login_success"
 LOGIN_FAILED = "login_failed"
 LOGOUT = "logout"
 ADMIN_CREATED = "admin_created"
+ADMIN_PASSWORD_RESET = "admin_password_reset"
 
 EMPLOYEE_CREATED = "employee_created"
 EMPLOYEE_UPDATED = "employee_updated"
