@@ -8,15 +8,18 @@
   var deactivate = document.getElementById("browser-camera-stop");
   var status = document.getElementById("browser-camera-status");
   var device = document.getElementById("browser-camera-device");
+  var recover = document.getElementById("browser-camera-admin-stop");
   var preferredDevice = "";
   try { preferredDevice = localStorage.getItem("eoffice-camera-device") || ""; } catch (_) {}
   var session = null;
   var pendingStart = null;
   var stopping = null;
+  var recovering = false;
 
   function controls() {
-    activate.disabled = !!(session || pendingStart || stopping);
+    activate.disabled = !!(session || pendingStart || stopping || recovering);
     deactivate.disabled = !session;
+    if (recover) recover.disabled = recovering;
   }
 
   function errorText(error) {
@@ -34,7 +37,8 @@
       frame_too_large: "Gambar kamera terlalu besar. Turunkan resolusi kamera, lalu aktifkan lagi.",
       invalid_frame: "Gambar kamera tidak dapat dibaca. Aktifkan kamera untuk mencoba lagi.",
       stale: "Pengiriman gambar terlalu lambat. Periksa koneksi, lalu aktifkan kamera lagi.",
-      expired: "Sesi kamera berakhir. Aktifkan kamera untuk memulai lagi."
+      expired: "Sesi kamera berakhir. Aktifkan kamera untuk memulai lagi.",
+      admin_required: "Login sebagai admin lokal aktif untuk menghentikan sesi kamera lain."
     };
     return messages[error.code || error.name] || "Koneksi ke server kamera terputus. Periksa koneksi, lalu aktifkan kamera lagi.";
   }
@@ -126,7 +130,7 @@
   }
 
   async function start() {
-    if (session || pendingStart || stopping || document.hidden) return;
+    if (session || pendingStart || stopping || recovering || document.hidden) return;
     var current = {};
     session = current;
     controls();
@@ -180,6 +184,20 @@
   }
 
   activate.addEventListener("click", start);
+  if (recover && root.dataset.adminStopUrl) recover.addEventListener("click", async function () {
+    if (recovering) return;
+    recovering = true;
+    stop();
+    controls();
+    status.textContent = "Menghentikan sesi kamera lama…";
+    try {
+      var result = await request({}, "adminStop");
+      status.textContent = result.draining
+        ? "Sesi lama dihentikan. Tunggu pemrosesan selesai, lalu aktifkan kamera di sini."
+        : "Sesi lama dihentikan. Aktifkan kamera untuk memakai kamera di sini.";
+    } catch (error) { status.textContent = errorText(error); }
+    finally { recovering = false; controls(); }
+  });
   async function listDevices() {
     if (!device || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
     try {

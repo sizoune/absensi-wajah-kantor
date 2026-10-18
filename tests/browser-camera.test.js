@@ -29,6 +29,7 @@ function setup(options = {}) {
   };
   const root = element('browser-camera');
   root.dataset = {csrfToken: 'csrf', startUrl: '/start', stopUrl: '/stop', challengeUrl: '/challenge', frameUrl: '/frame'};
+  if (options.admin) root.dataset.adminStopUrl = '/admin-stop';
   const video = element('browser-camera-video');
   Object.assign(video, {videoWidth: 1920, videoHeight: 1080, readyState: 4,
     play: async () => {}, pause() { this.paused = true; }});
@@ -74,6 +75,7 @@ function setup(options = {}) {
     permissionCalls: () => permissionCalls,
     start: () => element('browser-camera-start').fire('click'),
     stop: () => element('browser-camera-stop').fire('click'),
+    recover: () => element('browser-camera-admin-stop').fire('click'),
     status: () => element('browser-camera-status').textContent,
     async tick() {
       const item = [...timers].find(([, timer]) => timer.delay === 200);
@@ -370,4 +372,60 @@ test('a pending camera enumeration cannot overwrite the latest operator selectio
   pending.resolve([{kind: 'videoinput', deviceId: 'usb'}, {kind: 'videoinput', deviceId: 'integrated'}]);
   await flush();
   assert.equal(ui.element('browser-camera-device').value, 'usb');
+});
+
+test('busy browser recovery requires admin stop before a fresh permission and owner grant', async () => {
+  let stopped = false;
+  const ui = setup({admin: true, fetch: async url => {
+    if (url === '/start' && !stopped) return response({error: 'busy'}, 409);
+    if (url === '/admin-stop') { stopped = true; return response({draining: false}); }
+  }});
+  await ui.start(); await flush();
+  assert.match(ui.status(), /sedang digunakan/i);
+  assert.equal(ui.track.stopped, true);
+  await ui.recover(); await flush();
+  assert.match(ui.status(), /sesi lama dihentikan/i);
+  const request = ui.calls.find(call => call.url === '/admin-stop').request;
+  assert.equal(request.headers['X-CSRFToken'], 'csrf');
+  assert.equal(request.headers['X-Camera-Owner'], undefined);
+  assert.equal(ui.permissionCalls(), 1, 'recovery itself never requests camera permission');
+  await ui.start(); await flush();
+  assert.equal(ui.permissionCalls(), 2);
+  assert.equal(ui.calls.filter(call => call.url === '/start').length, 2);
+  assert.match(ui.status(), /pratinjau kamera aktif/i);
+  ui.stop(); await flush();
+});
+
+test('admin recovery blocks duplicate controls and explains draining or lost authorization', async () => {
+  const pending = deferred();
+  const ui = setup({admin: true, fetch: url => url === '/admin-stop' ? pending.promise : undefined});
+  const recovering = ui.recover(); await flush();
+  assert.equal(ui.element('browser-camera-start').disabled, true);
+  assert.equal(ui.element('browser-camera-admin-stop').disabled, true);
+  await ui.recover(); await ui.start(); await flush();
+  assert.equal(ui.calls.length, 1);
+  assert.equal(ui.permissionCalls(), 0);
+  pending.resolve(response({draining: true}));
+  await recovering; await flush();
+  assert.match(ui.status(), /tunggu pemrosesan selesai/i);
+  assert.equal(ui.element('browser-camera-start').disabled, false);
+  const denied = setup({admin: true, fetch: url => url === '/admin-stop' ? response({error: 'admin_required'}, 403) : undefined});
+  await denied.recover(); await flush();
+  assert.match(denied.status(), /login sebagai admin lokal aktif/i);
+  assert.equal(denied.element('browser-camera-admin-stop').disabled, false);
+});
+
+test('a late start response for a revoked owner cannot continue capture or retry silently', async () => {
+  const pending = deferred();
+  const ui = setup({fetch: url => url === '/start' ? pending.promise
+    : url === '/challenge' ? response({error: 'expired'}, 410) : undefined});
+  const starting = ui.start(); await flush();
+  pending.resolve(response({owner: 'revoked-owner', mode: 'preview'}));
+  await starting; await flush();
+  assert.equal(ui.track.stopped, true);
+  assert.equal(ui.calls.some(call => call.url === '/frame'), false);
+  assert.equal(ui.calls.filter(call => call.url === '/start').length, 1);
+  assert.equal(ui.permissionCalls(), 1);
+  assert.equal(ui.timers.size, 0);
+  assert.match(ui.status(), /sesi kamera berakhir/i);
 });

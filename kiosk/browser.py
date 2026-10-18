@@ -252,6 +252,12 @@ class BrowserCamera:
             self._release()
         return {'ok': True}
 
+    def stop_session(self):
+        """Revoke ownership; in-flight frames still hold busy until safely discarded."""
+        with self._lock:
+            self._release()
+            return {'ok': True, 'draining': self._busy}
+
     def _check_capture(self, capture):
         self._expire()
         if (capture_paused(self.app) or self._shutdown.is_set() or capture is None or capture.owner != self._owner
