@@ -100,9 +100,16 @@ karena konteks build memakai allowlist sumber.
 Validasi tanpa mencetak token, lalu jalankan konfigurasi integrasi secara sengaja:
 
 ```sh
-docker compose --env-file docker/compose.env -f compose.yaml -f docker/compose.eoffice.yaml config --quiet
-docker compose --env-file docker/compose.env -f compose.yaml -f docker/compose.eoffice.yaml up --build
+./docker/eoffice-compose.sh config --quiet
+./docker/eoffice-compose.sh up --build
 ```
+
+Gunakan wrapper ini untuk semua perintah integrasi. Wrapper menentukan folder
+proyek dari lokasinya dan menghapus empat variabel `EOFFICE_BASE_URL`,
+`EOFFICE_DEVICE_TOKEN`, `EOFFICE_HOST_MODEL_DIR`, serta `EOFFICE_HOST_KEY_FILE`
+dari environment shell sebelum memanggil Compose. Nilai dalam
+`docker/compose.env` menjadi sumber konfigurasi staging yang dipilih, meskipun
+shell sebelumnya berisi konfigurasi produksi.
 
 Override memasang model dan **satu file** keyring secara read-only. Path sumber
 yang tidak ada tidak dibuat otomatis. Layanan memakai `ATTENDANCE_MODE=eoffice`
@@ -114,10 +121,10 @@ owner/challenge/capture sebelum tombol ditekan. Putus koneksi API mempertahankan
 antrean terenkripsi; putus browser menghentikan capture tanpa menyimpan frame
 untuk dikirim ulang.
 
-Gunakan flag integrasi yang sama saat menghentikan:
+Hentikan integrasi melalui wrapper yang sama:
 
 ```sh
-docker compose --env-file docker/compose.env -f compose.yaml -f docker/compose.eoffice.yaml down
+./docker/eoffice-compose.sh down
 ```
 
 `docker compose up` berikutnya kembali ke pratinjau. Antrean integrasi tetap ada

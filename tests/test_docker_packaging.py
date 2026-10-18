@@ -180,17 +180,33 @@ def test_default_compose_ignores_ambient_integration_settings():
     assert not service.get('devices') and not service.get('privileged')
 
 
-def test_integration_override_requires_deliberate_env_file_and_readonly_assets():
+def test_integration_wrapper_uses_selected_file_over_ambient_settings(tmp_path):
     if not shutil.which('docker'):
         pytest.skip('Docker Compose CLI is unavailable')
-    result = subprocess.run(['docker', 'compose', '--env-file', 'docker/compose.env.example',
-                             '-f', 'compose.yaml', '-f', 'docker/compose.eoffice.yaml',
-                             'config', '--format', 'json'], cwd=ROOT, capture_output=True, text=True, check=True)
+    project = tmp_path / 'camera trial'
+    (project / 'docker').mkdir(parents=True)
+    for name in ('compose.yaml', 'docker/compose.eoffice.yaml', 'docker/eoffice-compose.sh'):
+        shutil.copy2(ROOT / name, project / name)
+    shutil.copy2(ROOT / 'docker/compose.env.example', project / 'docker/compose.env')
+    environment = dict(os.environ,
+                       EOFFICE_BASE_URL='https://ambient-production.example.invalid',
+                       EOFFICE_DEVICE_TOKEN='ambient-production-token',
+                       EOFFICE_HOST_MODEL_DIR='/ambient-production/models',
+                       EOFFICE_HOST_KEY_FILE='/ambient-production/key.json')
+    # Run outside the copied CAM root to check wrapper path resolution too.
+    result = subprocess.run([str(project / 'docker/eoffice-compose.sh'), 'config', '--format', 'json'],
+                            cwd=tmp_path, env=environment, capture_output=True, text=True, check=True)
     service = json.loads(result.stdout)['services']['camera']
     assert service['environment']['ATTENDANCE_MODE'] == 'eoffice'
     assert service['environment']['LIVENESS_MODE'] == 'passive'
+    assert service['environment']['EOFFICE_BASE_URL'] == 'https://staging.example.invalid'
+    assert service['environment']['EOFFICE_DEVICE_TOKEN'] == 'replace-with-authorized-staging-device-token'
     assets = [mount for mount in service['volumes'] if mount['type'] == 'bind']
     assert {mount['target'] for mount in assets} == {'/run/models', '/run/keys/eoffice-key.json'}
+    assert {mount['source'] for mount in assets} == {
+        '/absolute/path/outside-project/eoffice-models',
+        '/absolute/path/outside-project/eoffice-secrets/eoffice-key.json',
+    }
     assert all(mount['read_only'] and not mount['bind']['create_host_path'] for mount in assets)
     assert any(mount['type'] == 'volume' and mount['target'] == '/app/instance'
                for mount in service['volumes'])
@@ -211,6 +227,7 @@ def test_docker_context_starts_with_source_allowlist():
                 if line.strip() and not line.startswith('#')]
     assert patterns[0] == '**'
     assert '!app.py' in patterns and '!docker/start.py' in patterns
+    assert '!docker/eoffice-compose.sh' not in patterns
     assert not any(line in patterns for line in ('!.env', '!instance/', '!model_files/', '!tests/'))
     for package in ('camera', 'integration', 'kiosk', 'maintenance', 'perf', 'recognition',
                     'routes', 'services', 'tracking'):
