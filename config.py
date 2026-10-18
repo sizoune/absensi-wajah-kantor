@@ -4,6 +4,7 @@ Konfigurasi aplikasi.
 Semua nilai rahasia (SECRET_KEY, password database) dibaca dari file .env,
 tidak pernah ditulis langsung di kode sumber.
 """
+import ipaddress
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -40,6 +41,18 @@ def _build_database_uri():
 
 
 def validate_bootstrap_config(config: Mapping[str, object]) -> None:
+    origin = config.get('KIOSK_PUBLIC_ORIGIN', '')
+    proxy = config.get('KIOSK_TRUSTED_PROXY_IP', '')
+    if origin or proxy:
+        try:
+            url = urlsplit(origin)
+            if (url.scheme != 'https' or not url.hostname or url.username or url.password
+                    or url.path or url.query or url.fragment or any(char.isspace() for char in origin)):
+                raise ValueError
+            url.port
+            ipaddress.ip_address(proxy)
+        except (ValueError, TypeError) as exc:
+            raise ValueError('KIOSK_PUBLIC_ORIGIN requires an exact HTTPS origin and KIOSK_TRUSTED_PROXY_IP one proxy IP') from exc
     if config.get('CAMERA_SOURCE', 'native') not in ('native', 'browser'):
         raise ValueError('CAMERA_SOURCE must be native or browser')
     mode = config.get('ATTENDANCE_MODE', 'standalone')
@@ -91,6 +104,8 @@ def _eoffice_test_mode() -> bool:
 
 class Config:
     FIRST_SETUP_ENABLED = True
+    KIOSK_PUBLIC_ORIGIN = os.getenv('KIOSK_PUBLIC_ORIGIN', '')
+    KIOSK_TRUSTED_PROXY_IP = os.getenv('KIOSK_TRUSTED_PROXY_IP', '')
     ATTENDANCE_MODE_CONFIGURED = 'ATTENDANCE_MODE' in os.environ
     DATABASE_CONFIGURED = any(os.getenv(name) for name in
                               ('DATABASE_URL', 'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'))

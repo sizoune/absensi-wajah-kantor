@@ -1,0 +1,5 @@
+services:
+  camera:
+    environment:
+      KIOSK_PUBLIC_ORIGIN: ${KIOSK_PUBLIC_ORIGIN:?Isi origin HTTPS instansi tanpa path}
+      KIOSK_TRUSTED_PROXY_IP: ${KIOSK_TRUSTED_PROXY_IP:?Isi satu IP peer reverse proxy}

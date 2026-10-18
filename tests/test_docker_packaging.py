@@ -131,7 +131,7 @@ def test_waitress_does_not_spill_allowed_frames_to_disk(monkeypatch):
 
     create_server = Mock()
     monkeypatch.setattr(waitress, 'create_server', create_server)
-    app = object()
+    app = SimpleNamespace(config={})
     startup()['create_http_server'](app)
     assert create_server.call_args.args == (app,)
     settings = create_server.call_args.kwargs
@@ -222,7 +222,7 @@ def test_default_compose_ignores_ambient_integration_settings():
                             cwd=ROOT, env=environment, capture_output=True, text=True, check=True)
     config = json.loads(result.stdout)
     service = config['services']['camera']
-    assert service['environment']['ATTENDANCE_MODE'] == 'standalone'
+    assert service['environment']['ATTENDANCE_MODE'] == 'eoffice'
     assert service['environment']['EOFFICE_TEST_MODE'] == 'false'
     assert service['environment']['CAMERA_SOURCE'] == 'browser'
     assert 'EOFFICE_DEVICE_TOKEN' not in service['environment']
@@ -234,6 +234,7 @@ def test_default_compose_ignores_ambient_integration_settings():
     assert service['ports'][0]['target'] == 5000
     assert service['volumes'][0]['type'] == 'volume'
     assert service['volumes'][0]['target'] == '/app/instance'
+    assert service['restart'] == 'unless-stopped'
     assert not service.get('devices') and not service.get('privileged')
 
 
