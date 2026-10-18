@@ -8,7 +8,7 @@ from datetime import datetime
 from email.utils import format_datetime, parsedate_to_datetime
 from typing import Any, cast
 from urllib.error import HTTPError
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPSHandler, HTTPRedirectHandler, Request, build_opener
 
 from integration.clock import MAX_ANCHOR_UNCERTAINTY_SECONDS
@@ -51,7 +51,7 @@ def _json(body: bytes) -> dict[str, JSONValue]:
 
 
 class EofficeClient:
-    def __init__(self, base_url: str, token: str, *, test_mode: bool = False) -> None:
+    def __init__(self, base_url: str, token: str, *, test_mode: bool = False, scope=None) -> None:
         if type(base_url) is not str:
             raise ValueError('Expected HTTPS e-office URL')
         url = urlsplit(base_url)
@@ -65,6 +65,9 @@ class EofficeClient:
         self._base_url = base_url.rstrip('/')
         self._token = token
         self.test_mode = test_mode
+        if scope is not None and test_mode:
+            raise ValueError('Operational scope cannot be applied to camera-test transport')
+        self._scope = self.validate_scope(scope) if scope is not None else None
         self._path = '/api/kiosk-test' if test_mode else '/api/kiosk'
         self._opener = build_opener(HTTPSHandler(context=ssl.create_default_context()), RejectRedirects())
         self.snapshot_server_time: datetime | None = None
@@ -91,7 +94,7 @@ class EofficeClient:
         uncertainty = 1 + received_monotonic - started
         with response:
             # Date floors to a second; the full round trip bounds unknown one-way delay.
-            if path == self._path + '/snapshot' and (not math.isfinite(uncertainty)
+            if path.split('?', 1)[0] == self._path + '/snapshot' and (not math.isfinite(uncertainty)
                                  or not 1 <= uncertainty <= MAX_ANCHOR_UNCERTAINTY_SECONDS):
                 raise ValueError('Authenticated server Date uncertainty exceeds clock tolerance')
             code = response.status if hasattr(response, 'status') else response.code
@@ -109,10 +112,16 @@ class EofficeClient:
                 raise ValueError('Oversized or partial e-office response')
             return code, _json(payload), headers, received_monotonic, received_wall, uncertainty
 
-    def snapshot(self) -> dict[str, JSONValue]:
+    def snapshot(self, *, scope=None) -> dict[str, JSONValue]:
         self.snapshot_server_time = None
         self.snapshot_received_monotonic = self.snapshot_received_wall_time = self.snapshot_uncertainty_seconds = None
-        code, snapshot, headers, received_monotonic, received_wall, uncertainty = self._request(self._path + '/snapshot', None, MAX_SNAPSHOT_BYTES)
+        if scope is not None and self.test_mode:
+            raise ValueError('Operational scope cannot be applied to camera-test transport')
+        scope = self._scope if scope is None else self.validate_scope(scope)
+        path = self._path + '/snapshot'
+        if scope is not None:
+            path += '?' + urlencode({'scope': json.dumps(scope, separators=(',', ':'))})
+        code, snapshot, headers, received_monotonic, received_wall, uncertainty = self._request(path, None, MAX_SNAPSHOT_BYTES)
         if code != 200:
             raise RequestFailure(code)
         validate_snapshot(snapshot, test_mode=self.test_mode)
@@ -132,13 +141,26 @@ class EofficeClient:
         return snapshot
 
     @staticmethod
+    def validate_scope(value):
+        if (type(value) is not dict or set(value) != {'skpd_id', 'scope_type', 'subunit_id'}
+                or type(value['skpd_id']) is not int or not 0 < value['skpd_id'] <= 2**53-1
+                or value['scope_type'] not in ('all_skpd', 'parent', 'subunit')):
+            raise ValueError('Invalid device scope')
+        subunit = value['subunit_id']
+        if value['scope_type'] == 'subunit':
+            if type(subunit) is not int or not 0 < subunit <= 2**53-1:
+                raise ValueError('A specific subunit requires a positive ID')
+        elif subunit is not None:
+            raise ValueError('This scope does not select a specific subunit')
+        return dict(value)
+
+    @staticmethod
     def _identity(value):
         if (type(value) is not dict or set(value) != {'device_id', 'skpd_id', 'scope_type', 'subunit_id', 'purpose'}
                 or type(value['device_id']) is not str or UUID.fullmatch(value['device_id']) is None
-                or type(value['skpd_id']) is not int or value['skpd_id'] <= 0
-                or value['scope_type'] != 'all_skpd' or value['subunit_id'] is not None
                 or value['purpose'] != 'attendance'):
             raise ValueError('Invalid authorized device identity')
+        EofficeClient.validate_scope({key: value[key] for key in ('skpd_id', 'scope_type', 'subunit_id')})
         return value
 
     def identity(self):
@@ -150,7 +172,7 @@ class EofficeClient:
     def organizations(self):
         if self.test_mode:
             raise ValueError('Operational organization setup cannot use camera-test credentials')
-        code, value, *_ = self._request(self._path + '/organizations', None, 16 * 1024)
+        code, value, *_ = self._request(self._path + '/organizations', None, 256 * 1024)
         if code != 200:
             raise RequestFailure(code)
         if set(value) != {'device', 'organizations'}:
@@ -160,20 +182,34 @@ class EofficeClient:
         if type(organizations) is not list or len(organizations) != 1:
             raise ValueError('Invalid authorized organizations')
         organization = organizations[0]
-        if (type(organization) is not dict or set(organization) != {'skpd_id', 'name', 'scope_types'}
+        if (type(organization) is not dict or set(organization) not in
+                ({'skpd_id', 'name', 'scope_types'}, {'skpd_id', 'name', 'scope_types', 'subunits'})
                 or type(organization['skpd_id']) is not int or organization['skpd_id'] != identity['skpd_id']
                 or type(organization['name']) is not str or not organization['name'].strip()
-                or len(organization['name']) > 255 or organization['scope_types'] != ['all_skpd']):
+                or len(organization['name']) > 255 or type(organization['scope_types']) is not list
+                or not organization['scope_types'] or len(organization['scope_types']) > 3
+                or any(type(scope) is not str or scope not in ('all_skpd', 'parent', 'subunit') for scope in organization['scope_types'])
+                or len(set(organization['scope_types'])) != len(organization['scope_types'])):
             raise ValueError('Invalid authorized organization')
+        subunits = organization.get('subunits', [])
+        if (type(subunits) is not list or len(subunits) > 1000
+                or 'subunit' in organization['scope_types'] and 'subunits' not in organization):
+            raise ValueError('Invalid authorized subunits')
+        seen = set()
+        for subunit in subunits:
+            if (type(subunit) is not dict or set(subunit) != {'subunit_id', 'skpd_id', 'name'}
+                    or type(subunit['subunit_id']) is not int or not 0 < subunit['subunit_id'] <= 2**53-1
+                    or subunit['subunit_id'] in seen or type(subunit['skpd_id']) is not int
+                    or subunit['skpd_id'] != identity['skpd_id'] or type(subunit['name']) is not str
+                    or not subunit['name'].strip() or len(subunit['name']) > 255):
+                raise ValueError('Invalid authorized subunit')
+            seen.add(subunit['subunit_id'])
         return value
 
     def select_scope(self, scope):
         if self.test_mode:
             raise ValueError('Operational organization setup cannot use camera-test credentials')
-        if (type(scope) is not dict or set(scope) != {'skpd_id', 'scope_type', 'subunit_id'}
-                or type(scope['skpd_id']) is not int or scope['skpd_id'] <= 0
-                or scope['scope_type'] != 'all_skpd' or scope['subunit_id'] is not None):
-            raise ValueError('Invalid device scope')
+        scope = self.validate_scope(scope)
         code, value, *_ = self._request(self._path + '/scope', json.dumps(scope).encode('utf-8'), 16 * 1024)
         if code != 200:
             raise RequestFailure(code)
