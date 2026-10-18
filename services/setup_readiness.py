@@ -94,6 +94,9 @@ def readiness_status():
         if browser is None or browser.mode == 'preview' or not browser.capturing:
             runtime['capture'] = False
     blocked = [key for key, passed in {**checks, **runtime}.items() if not passed]
+    from kiosk.control import capture_paused
+    if capture_paused(current_app):
+        blocked.append('capture_hold')
     status['steps'].update(models=checks['models'], snapshot=checks['snapshot'], camera=checks['camera'])
     status['pending'] = [key for key, passed in status['steps'].items() if not passed]
     return {**status, 'can_finish': completion, 'ready': status['complete'] and not blocked,
@@ -105,6 +108,9 @@ def readiness_status():
 
 def require_capture_configuration(*, enrollment=True):
     """Wizard installations must pass current checks before any camera opens."""
+    from kiosk.control import capture_paused
+    if capture_paused(current_app):
+        raise ValueError('Capture ditahan selama pemulihan pengaturan. Buka pengaturan admin lalu coba lagi.')
     if not setup_managed():
         return
     status = readiness_status()

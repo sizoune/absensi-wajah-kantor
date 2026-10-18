@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 
 from kiosk.lock import AlreadyRunning, SingleInstanceLock
+from kiosk.control import capture_paused
 from kiosk.state import KioskState
 
 MAX_BYTES = 512 * 1024
@@ -144,6 +145,8 @@ class BrowserCamera:
             self._release()
 
     def _authorize(self, cookie, owner, origin):
+        if capture_paused(self.app):
+            raise CameraRequestError('configuration_held', 409)
         self._expire()
         if self._owner is None:
             raise CameraRequestError('expired', 410)
@@ -176,6 +179,8 @@ class BrowserCamera:
 
     def start(self, cookie, origin):
         with self._lock:
+            if capture_paused(self.app):
+                raise CameraRequestError('configuration_held', 409)
             self._expire()
             if self._owner or self._busy:
                 raise CameraRequestError('busy', 409)
@@ -249,7 +254,7 @@ class BrowserCamera:
 
     def _check_capture(self, capture):
         self._expire()
-        if (self._shutdown.is_set() or capture is None or capture.owner != self._owner
+        if (capture_paused(self.app) or self._shutdown.is_set() or capture is None or capture.owner != self._owner
                 or capture.generation != self._generation or self.clock() > capture.deadline):
             raise CameraRequestError('stale', 410)
 

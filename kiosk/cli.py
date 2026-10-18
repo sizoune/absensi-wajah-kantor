@@ -94,6 +94,9 @@ def register_kiosk_commands(app):
         from services.setup_service import setup_required
         if setup_required():
             raise click.ClickException('Selesaikan setup perangkat sebelum memulai capture.')
+        from kiosk.control import capture_paused, native_capture_guard, reload_capture_settings, release_after_sync
+        if capture_paused(app):
+            raise click.ClickException('Capture ditahan selama pemulihan pengaturan. Coba lagi melalui admin lokal.')
         from services.setup_readiness import require_capture_configuration, setup_managed
         try:
             require_capture_configuration(enrollment=False)
@@ -126,7 +129,17 @@ def register_kiosk_commands(app):
 
         cam = None
         integration = {}
+        deferred_release = False
         try:
+            if capture_paused(app):
+                raise click.ClickException('Capture ditahan selama pemulihan pengaturan.')
+            reload_capture_settings(app)
+            try:
+                require_capture_configuration(enrollment=False)
+                if setup_managed() and app.config.get('CAMERA_SOURCE') != 'native':
+                    raise ValueError('Kamera browser digunakan. Buka kios di browser dan berikan izin kamera.')
+            except ValueError as exc:
+                raise click.ClickException(str(exc)) from exc
             people = {}
             eoffice = app.config.get('ATTENDANCE_MODE', 'standalone') == 'eoffice'
             if eoffice:
@@ -202,6 +215,7 @@ def register_kiosk_commands(app):
                 liveness_settings=live_settings,
                 match_threshold=app.config["FACE_MATCH_THRESHOLD"],
                 match_margin=app.config["FACE_MATCH_MARGIN"],
+                **({'frame_guard':lambda: native_capture_guard(app)} if eoffice else {}),
                 **integration,
             )
 
@@ -218,20 +232,25 @@ def register_kiosk_commands(app):
                 click.secho("Peringatan: pemeriksaan anti-foto DIMATIKAN (LIVENESS_MODE=off).", fg="yellow")
             else:
                 click.echo(f"Anti-foto aktif: {live_settings.mode}")
-            worker.run(should_stop=lambda: stop["flag"])
+            worker.run(should_stop=lambda: stop["flag"] or capture_paused(app))
         finally:
+            if cam is not None:
+                cam.release()
             if integration:
                 sync = integration['sync_worker']
-                sync.stop(timeout=0.0)
+                # Retain the camera ownership lock until old network/SQLite work has drained.
+                stopped = sync.stop(timeout=0)
                 if not sync.started:
                     sync.store.close()
                 integration['integration_store'].close()
-            if cam is not None:
-                cam.release()
+                if not stopped:
+                    release_after_sync(sync, lock)
+                    deferred_release = True
             if preview:
                 try:
                     cv2.destroyAllWindows()
                 except Exception:
                     pass
-            lock.release()
+            if not deferred_release:
+                lock.release()
             click.echo("Layanan kamera berhenti.")

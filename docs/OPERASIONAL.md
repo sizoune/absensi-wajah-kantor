@@ -86,6 +86,34 @@ flask --app app face-enroll --employee NIP --replace "alasan daftar ulang"
 Menu **Jadwal kerja** → Ubah. Perubahan berlaku untuk absensi berikutnya;
 catatan lama tetap dinilai dengan jadwal yang berlaku saat itu.
 
+## Mengubah cakupan perangkat eOffice
+
+Setelah setup selesai, admin lokal membuka **Kesiapan perangkat → Ubah cakupan
+perangkat**. Muat ulang daftar organisasi dari server bila diperlukan, lalu pilih
+**Seluruh SKPD**, **Induk/non-subunit**, atau **Subunit tertentu** dari nama yang
+diizinkan token perangkat. Jalur setup pertama tetap tertutup.
+
+Perubahan menunggu kamera dan sinkronisasi lama berhenti dengan bersih sebelum
+memeriksa antrean. Jika masih ada kejadian pending, perubahan ditolak dengan
+alasan; konfigurasi lama tetap digunakan agar antrean dapat dikirim. Tunggu
+sinkronisasi berhasil lalu coba lagi. Tidak tersedia penghapusan antrean untuk
+melewati pemeriksaan ini.
+
+Selama izin server, cakupan, dan snapshot baru diterapkan, capture ditahan pada
+kamera browser maupun proses kamera native. Gangguan jaringan, snapshot parsial,
+atau restart mempertahankan status tertunda dan kunci/data lama. Buka halaman
+cakupan dan simpan kembali pilihan tertunda untuk mencoba lagi. Jika penyimpanan
+lama hilang/rusak, pulihkan data dan kunci asli; layanan tidak membuat antrean
+kosong pengganti.
+
+Setelah snapshot baru valid, layanan menyiapkan ulang integrasi dengan galeri dan
+waktu server baru. Kamera browser memerlukan aktivasi sesi baru; pemilik sesi
+sebelumnya tidak dapat melanjutkan capture. Peluncur native mencoba kembali
+melalui proses yang sudah ada. Snapshot kosong dapat tersimpan, sementara status
+kesiapan tetap menahan absensi sampai enrollment dan prasyarat lain tersedia.
+Jangan menghapus file `.pause` atau file kunci kamera secara manual untuk memaksa
+capture; gunakan pemulihan pengaturan melalui admin.
+
 ## Penanganan gangguan
 
 | Gejala | Penyebab umum | Tindakan |
