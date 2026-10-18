@@ -1,6 +1,9 @@
 {% set camera_preview = camera_preview|default(false) %}
 <section id="browser-camera" class="browser-camera" aria-labelledby="browser-camera-label"
   data-csrf-token="{{ csrf_token() }}"
+  {% if current_user.is_authenticated and current_user.is_active and current_user.role == 'admin' %}
+  data-admin-stop-url="{{ url_for('setup.camera_admin_stop') if camera_preview else url_for('kiosk.camera_admin_stop') }}"
+  {% endif %}
   data-start-url="{{ url_for('setup.browser_preview', action='start') if camera_preview else url_for('kiosk.camera_start') }}"
   data-challenge-url="{{ url_for('setup.browser_preview', action='challenge') if camera_preview else url_for('kiosk.camera_challenge') }}"
   data-frame-url="{{ url_for('setup.browser_preview', action='frame') if camera_preview else url_for('kiosk.camera_frame') }}"
@@ -13,7 +16,13 @@
   <div class="browser-camera-controls">
     <button id="browser-camera-start" type="button" aria-controls="browser-camera-video">Aktifkan kamera</button>
     <button id="browser-camera-stop" type="button" aria-controls="browser-camera-video" disabled>Matikan kamera</button>
+    {% if current_user.is_authenticated and current_user.is_active and current_user.role == 'admin' %}
+    <button id="browser-camera-admin-stop" type="button">Hentikan sesi kamera lama</button>
+    {% endif %}
   </div>
+  {% if not (current_user.is_authenticated and current_user.is_active and current_user.role == 'admin') %}
+  <p>Admin lokal dapat menghentikan sesi kamera lama setelah <a href="{{ url_for('auth.login', next=url_for('kiosk.page')) }}">login admin</a>.</p>
+  {% endif %}
   <video id="browser-camera-video" aria-label="Pratinjau kamera lokal" autoplay muted playsinline hidden></video>
   <noscript>Aktifkan JavaScript di browser untuk menggunakan kamera.</noscript>
 </section>

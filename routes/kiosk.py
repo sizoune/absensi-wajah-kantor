@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 from flask import Blueprint, current_app, jsonify, render_template, request, session
 from flask_wtf.csrf import validate_csrf
+from flask_login import current_user
 from werkzeug.exceptions import RequestEntityTooLarge
 from wtforms import ValidationError
 
@@ -140,3 +141,14 @@ def camera_frame():
 @csrf.exempt
 def camera_stop():
     return _camera_call('stop')
+
+
+@bp.post('/camera/admin-stop')
+@csrf.exempt  # Both kiosk and setup aliases enforce JSON CSRF and exact origin here.
+def camera_admin_stop():
+    denied = validate_camera_request()
+    if denied is not None:
+        return denied
+    if not current_user.is_authenticated or not current_user.is_active or current_user.role != 'admin':
+        return _camera_error('admin_required', 403)
+    return jsonify(current_app.extensions['browser_camera'].stop_session())

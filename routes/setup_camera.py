@@ -33,6 +33,12 @@ def camera_status():
     return native_camera_status()
 
 
+@bp.post('/camera/admin-stop')
+def camera_admin_stop():
+    from routes.kiosk import camera_admin_stop as stop_session
+    return stop_session()
+
+
 @bp.post('/camera/select')
 @setup_or_admin_required
 def camera_select():
