@@ -36,11 +36,12 @@ EOFFICE_MESSAGES = {
     'duplicate': ('info', 'Sudah absen'),
     'outside_schedule': ('warning', 'Di luar jadwal'),
     'uncertain': ('warning', 'Identitas belum dipastikan'),
+    'rejected': ('warning', 'Presensi ditolak server. Hubungi operator'),
     'storage': ('error', 'Penyimpanan bermasalah'),
     'operator': ('error', 'Hubungi operator'),
 }
 
-EOFFICE_TEST_MESSAGES = {key: EOFFICE_MESSAGES[key] for key in ('pending', 'uncertain', 'storage', 'operator')}
+EOFFICE_TEST_MESSAGES = {key: EOFFICE_MESSAGES[key] for key in ('pending', 'uncertain', 'rejected', 'storage', 'operator')}
 EOFFICE_TEST_MESSAGES['test_recorded'] = ('info', 'Uji tersimpan')
 
 

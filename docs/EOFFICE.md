@@ -71,6 +71,14 @@ Threshold/margin/quality/passive deadline dan jumlah sampel **per verification_t
 
 ## Status dan pemulihan
 
+Event pengenalan yang valid tetap dikirim ke API; kios tidak menyaring pegawai
+berdasarkan `is_encrypt` atau pengecualian presensi. API menerapkan aturan server
+pada histori capture dan mempertahankan catatan pertama. Penolakan terminal
+server ditampilkan sebagai **Presensi ditolak server. Hubungi operator**, terpisah
+dari **Identitas belum dipastikan** pada pengenalan lokal. Alasan teknis dan data
+sensitif tidak ditampilkan pada layar publik. Hasil terminal lama tidak dikirim
+ulang sebagai event baru; setelah API diperbarui, gunakan scan baru.
+
 Enqueue terenkripsi harus commit sebelum tampilan pending. Pesan masuk/pulang hanya dari respons resmi; duplicate mempertahankan catatan pertama. Angka “baru tercatat” adalah jumlah respons recorded yang baru diakui worker pada run ini, **bukan rekap harian**. Respons lama yang baru sampai boleh berbeda waktunya dari capture. Hasil terminal tersimpan tetap menjadi sumber kebenaran walaupun antrean notifikasi 32 item penuh; layar merekonsiliasi hasil aktif dan galeri paling sering 2 Hz.
 
 | Status/kondisi | Langkah |

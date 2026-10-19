@@ -154,7 +154,7 @@ def test_overflow_recovers_current_terminal_and_gallery(kiosk):
 
 
 @pytest.mark.parametrize('outcome,expected', [('recorded', 'check_in'), ('duplicate', 'duplicate'),
-                                            ('outside_schedule', 'outside_schedule'), ('rejected', 'uncertain')])
+                                            ('outside_schedule', 'outside_schedule'), ('rejected', 'rejected')])
 def test_terminal_display_outcomes(kiosk, outcome, expected):
     worker, now, _ = kiosk
     event, = capture(kiosk)
@@ -524,3 +524,19 @@ def test_health_views_allowlist_fields_and_values():
         assert health['auth'] == 'paused' and health['clock'] == 'unavailable'
         assert not any(value in json.dumps(health) for value in ('secret', 'raw error', '101', 'score', 'templates'))
     assert 'integration' not in public_view(dict(raw, mode='standalone'), now=10)
+
+@pytest.mark.parametrize('reason', ['automatic_attendance_exception', 'invalid_clock_proof',
+                                   'enrollment_not_authorized', 'historical_schedule_unavailable'])
+def test_server_rejection_is_distinct_from_local_identity_uncertainty(kiosk, reason):
+    worker, now, _ = kiosk
+    event, = capture(kiosk)
+    response = terminal(event.event_id, 'rejected')
+    response['data'].update(reason=reason, ad_id=None, session=None)
+    worker.sync_worker.store.finish(event.event_id, response)
+    now[0] = .8
+    worker.reconcile_eoffice()
+    assert worker.message['status'] == 'rejected'
+    worker.publish(force=True)
+    message = public_view(worker.state.read(), now=now[0])['message']
+    assert 'Presensi ditolak server' in message['text']
+    assert reason not in message['text']

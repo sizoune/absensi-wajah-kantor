@@ -185,7 +185,7 @@ class KioskWorker:
                    or event_id is not None and self.message['id'] != event_id)
         self.message = {'status': status, 'first_name': first,
                         'id': event_id or str(uuid4()), 'at': self.wall_clock()}
-        if changed and status in ('check_in', 'check_out', 'outside_schedule', 'uncertain', 'storage', 'operator'):
+        if changed and status in ('check_in', 'check_out', 'outside_schedule', 'uncertain', 'rejected', 'storage', 'operator'):
             play_result(status in ('check_in', 'check_out'))
 
     def reconcile_eoffice(self, force: bool = False) -> None:
@@ -218,7 +218,7 @@ class KioskWorker:
                     data = result.get('data', {})
                     outcome = data.get('outcome')
                     display = {'duplicate': 'duplicate', 'outside_schedule': 'outside_schedule',
-                               'rejected': 'uncertain'}.get(outcome, 'operator')
+                               'rejected': 'rejected'}.get(outcome, 'operator')
                     if outcome == 'recorded':
                         display = {'check_in': 'check_in', 'check_out': 'check_out'}.get(data.get('session'), 'operator')
                     elif self.test_mode and outcome == 'test_recorded':
