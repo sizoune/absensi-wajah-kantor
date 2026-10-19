@@ -39,7 +39,9 @@ layanan normal, jangan rollback database otomatis. Simpan versi sebelumnya
 dan cadangan terakhir. Skema asing/lebih baru ditolak.
 
 Build Windows dari dependency/tool pin; uji inferensi fixture OpenCV, ONNX
-Runtime dan LiteRT dari executable. PR membangun paket; proses rilis manual
+Runtime dan LiteRT dari executable. Regresi penuh berjalan pada PR, sedangkan
+build produksi melewatinya; self-check dan inferensi executable tetap wajib.
+PR membangun paket; proses rilis manual
 dari tag membuat draft bertanda tangan. Publikasi stabil menunggu smoke test
 Windows bersih, kamera fisik, login/restart dan kegagalan update. Sertifikat
 Authenticode aplikasi terpisah dari signature updater.
