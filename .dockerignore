@@ -1,6 +1,7 @@
 # Allow only runtime source; credentials, models, databases and test data stay out.
 **
 !app.py
+!app_version.py
 !config.py
 !extensions.py
 !models.py

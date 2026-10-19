@@ -20,6 +20,7 @@ def startup():
     return runpy.run_path(str(ROOT / 'docker' / 'start.py'))
 
 
+@pytest.mark.skipif(os.name == 'nt', reason='Container POSIX permissions are verified on Unix; Windows uses installer ACLs.')
 def test_secret_is_created_once_with_private_permissions(tmp_path):
     path = tmp_path / 'secret_key'
     load_secret = startup()['load_secret']
@@ -85,6 +86,7 @@ def test_missing_secret_with_existing_test_queue_fails_without_regeneration(tmp_
 
 
 @pytest.mark.parametrize('origin_ip', [None, '100.64.0.10'])
+@pytest.mark.skipif(os.name == 'nt', reason='Docker shell wrappers require a POSIX host.')
 def test_trial_wrapper_clears_ambient_settings_and_selects_test_queue_context(tmp_path, origin_ip):
     if not shutil.which('docker'):
         pytest.skip('Docker Compose CLI is unavailable')
@@ -238,6 +240,7 @@ def test_default_compose_ignores_ambient_integration_settings():
     assert not service.get('devices') and not service.get('privileged')
 
 
+@pytest.mark.skipif(os.name == 'nt', reason='Docker shell wrappers require a POSIX host.')
 def test_integration_wrapper_uses_selected_file_over_ambient_settings(tmp_path):
     if not shutil.which('docker'):
         pytest.skip('Docker Compose CLI is unavailable')
@@ -288,7 +291,7 @@ def test_docker_context_starts_with_source_allowlist():
     patterns = [line.strip() for line in (ROOT / '.dockerignore').read_text().splitlines()
                 if line.strip() and not line.startswith('#')]
     assert patterns[0] == '**'
-    assert '!app.py' in patterns and '!docker/start.py' in patterns
+    assert '!app.py' in patterns and '!app_version.py' in patterns and '!docker/start.py' in patterns
     assert '!docker/eoffice-compose.sh' not in patterns
     assert not any(line in patterns for line in ('!.env', '!instance/', '!model_files/', '!tests/'))
     for package in ('camera', 'integration', 'kiosk', 'maintenance', 'perf', 'recognition',

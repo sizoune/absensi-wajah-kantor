@@ -13,8 +13,33 @@ on:
 permissions:
   contents: read
 jobs:
+  regression:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          version: '0.12.24'
+      - name: Prepare private CPython
+        shell: powershell
+        run: |
+          uv python install cpython-3.11.17-windows-x86_64-none --no-bin --no-registry
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime Python gagal disiapkan.' }
+          uv venv --python 3.11.17 --managed-python .build-venv
+          if ($LASTEXITCODE -ne 0) { throw 'Lingkungan tes gagal disiapkan.' }
+          (Join-Path $env:GITHUB_WORKSPACE '.build-venv\Scripts') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Install locked wheels
+        run: 'uv pip install --python .build-venv/Scripts/python.exe --require-hashes --only-binary=:all: -r requirements-windows.lock'
+      - name: Regression tests
+        run: python -m pytest -q -x
+      - name: Update controls regression
+        run: node tests/app_updates_ui.test.cjs
   build:
     runs-on: windows-2022
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -32,10 +57,6 @@ jobs:
           (Join-Path $env:GITHUB_WORKSPACE '.build-venv\Scripts') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Install locked wheels
         run: 'uv pip install --python .build-venv/Scripts/python.exe --require-hashes --only-binary=:all: -r requirements-windows.lock'
-      - name: Regression tests
-        run: python -m pytest -q
-      - name: Update controls regression
-        run: node tests/app_updates_ui.test.cjs
       - name: Build and exercise frozen executable
         shell: powershell
         env:
@@ -56,7 +77,7 @@ jobs:
           if-no-files-found: error
   draft-release:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
-    needs: build
+    needs: [regression, build]
     runs-on: windows-2022
     environment: windows-release
     permissions:
