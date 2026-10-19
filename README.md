@@ -38,11 +38,17 @@ pemilihan dan lisensi: [docs/MODEL_DECISION.md](docs/MODEL_DECISION.md).
 
 ## Pemasangan Windows
 
-Ekstrak ZIP rilis, lalu klik dua kali `scripts\pasang_windows.bat`. Bootstrap
-menyiapkan runtime privat, dependensi dan penyimpanan, membuka wizard dengan
-kode lokal, serta memasang satu shortcut untuk login Windows. Untuk membuka
-lagi, gunakan `scripts\jalankan_aplikasi.bat`. Langkah pemasangan, reinstall,
-pemulihan, dan batas pengujian fisik ada di [docs/INSTALASI.md](docs/INSTALASI.md).
+Distribusi installer kios eOffice disiapkan melalui workflow **Windows
+distribution**: `AbsensiSetup.exe` membawa runtime dan dependensi, lalu
+membuka wizard setup lokal. Update berikutnya melalui **Pembaruan aplikasi**
+pada admin lokal menggunakan paket GitHub bertanda tangan. Rilis tetap draft
+sampai pengujian Windows dan kamera fisik lulus. Penyiapan kunci build,
+pemulihan, dan pemeriksaan rilis ada di
+[docs/WINDOWS_DISTRIBUTION.md](docs/WINDOWS_DISTRIBUTION.md).
+
+Jalur ZIP lama (`scripts\pasang_windows.bat`) tetap tersedia untuk pengembangan;
+installer tidak otomatis memigrasikan instalasi tersebut. Petunjuknya ada di
+[docs/INSTALASI.md](docs/INSTALASI.md).
 
 ## Memasang dengan Docker
 

@@ -14,17 +14,17 @@ from kiosk.lock import AlreadyRunning, SingleInstanceLock
 from kiosk.control import CaptureBusy
 
 
-def run(app=None, console=None):
+def run(app=None, console=None, *, instance_path=None, app_factory=None):
     import waitress
     from waitress import wasyncore
     from services.setup_service import issue_setup_code, setup_required
 
     console = console or sys.stdout
-    instance = Path(app.instance_path) if app is not None else Path(__file__).resolve().parents[1] / 'instance'
+    instance = Path(app.instance_path) if app is not None else Path(instance_path or Path(__file__).resolve().parents[1] / 'instance')
     with SingleInstanceLock(instance / 'launcher.lock'):
         if app is None:
             from app import create_app
-            app = create_app()
+            app = app_factory() if app_factory else create_app()
         with app.app_context():
             required = setup_required()
         if required and not console.isatty():
@@ -53,6 +53,7 @@ def run(app=None, console=None):
         url = f'http://127.0.0.1:{server.effective_port}'
         native = None
         stop_file = Path(app.instance_path) / 'launcher.stop'
+        requested_stop = app.extensions.get('launcher_stop')
         try:
             thread.start()
             deadline = time.monotonic() + 15
@@ -72,6 +73,12 @@ def run(app=None, console=None):
                     code = issue_setup_code()
                 print(f'Kode setup: {code}', file=console, flush=True)
                 print('Masukkan kode pada browser lokal; Ctrl+C menghentikan aplikasi.', file=console, flush=True)
+            before_capture = app.extensions.get('before_capture')
+            if before_capture is not None:
+                before_capture()
+            updater = app.extensions.get('app_updates')
+            if updater is not None:
+                updater.schedule()
             if app.config.get('CAMERA_SOURCE') == 'native':
                 from kiosk.control import capture_fence, capture_paused
                 if capture_paused(app):
@@ -80,21 +87,29 @@ def run(app=None, console=None):
                                 and not app.config.get('CREDENTIAL_REPAIR_PENDING')):
                             fence.resume()
                 stop_file.unlink(missing_ok=True)
-                native = subprocess.Popen([
-                    os.environ.get('COMSPEC', 'cmd.exe'), '/d', '/c', r'scripts\jalankan_kios.bat'],
+                command = ([sys.executable, '--root', app.config['UPDATE_INSTALL_ROOT'], 'kiosk']
+                           if app.config.get('UPDATE_INSTALL_ROOT') else
+                           [os.environ.get('COMSPEC', 'cmd.exe'), '/d', '/c', r'scripts\jalankan_kios.bat'])
+                native = subprocess.Popen(command,
                     cwd=app.root_path,
                     env={**os.environ, 'ABSENSI_LAUNCHER_STOP_FILE': str(stop_file)},
                     creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))
             if not webbrowser.open(url + ('/setup' if required else '/kiosk/')):
                 raise RuntimeError('Browser tidak dapat dibuka. Periksa browser bawaan Windows.')
             while thread.is_alive():
+                if requested_stop is not None and requested_stop.is_set():
+                    break
                 thread.join(.5)
                 if native is not None and native.poll() is not None:
                     raise RuntimeError('Proses pengulangan kamera berhenti; jalankan peluncur kembali.')
-            raise RuntimeError('Server web berhenti; jalankan peluncur kembali.')
+            if requested_stop is None or not requested_stop.is_set():
+                raise RuntimeError('Server web berhenti; jalankan peluncur kembali.')
         except KeyboardInterrupt:
             print('Menghentikan aplikasi dengan bersih...', file=console, flush=True)
         finally:
+            updater = app.extensions.get('app_updates')
+            if updater is not None:
+                updater.closed.set()
             if native is not None:
                 stop_file.write_text('stop\n', encoding='ascii')
             stopping.set()
@@ -105,11 +120,25 @@ def run(app=None, console=None):
             thread.join(2)
             if native is not None:
                 try:
-                    with app.app_context(), capture_fence(app, reason='launcher') as fence:
-                        native.wait(timeout=12)
-                        if (not fence.was_paused and not app.config.get('SCOPE_CHANGE')
-                                and not app.config.get('CREDENTIAL_REPAIR_PENDING')):
-                            fence.resume()
+                    if app.config.get('UPDATE_INSTALL_ROOT'):
+                        was_paused = capture_paused(app)
+                        while True:
+                            try:
+                                with app.app_context(), capture_fence(app, timeout=1, reason='launcher') as fence:
+                                    native.wait(timeout=1)
+                                    if (not was_paused and not app.config.get('SCOPE_CHANGE')
+                                            and not app.config.get('CREDENTIAL_REPAIR_PENDING')):
+                                        fence.resume()
+                                break
+                            except (CaptureBusy, subprocess.TimeoutExpired):
+                                print('Menunggu kamera dan sinkronisasi berhenti...', file=console, flush=True)
+                                time.sleep(.1)
+                    else:
+                        with app.app_context(), capture_fence(app, reason='launcher') as fence:
+                            native.wait(timeout=12)
+                            if (not fence.was_paused and not app.config.get('SCOPE_CHANGE')
+                                    and not app.config.get('CREDENTIAL_REPAIR_PENDING')):
+                                fence.resume()
                 except (CaptureBusy, subprocess.TimeoutExpired) as exc:
                     raise RuntimeError('Kamera lama masih berhenti. Capture tetap ditahan; tunggu lalu coba lagi.') from exc
             else:
@@ -117,6 +146,10 @@ def run(app=None, console=None):
                 if runtime is not None:
                     while not runtime.close():
                         print('Menunggu kamera dan sinkronisasi berhenti...', file=console, flush=True)
+            with app.app_context():
+                from extensions import db
+                db.session.remove()
+                db.engine.dispose()
 
 
 def main():

@@ -112,6 +112,35 @@ def test_native_retry_stops_cleanly_and_preserves_settings_holds(
         assert pause.read_text() == hold + '\n'
 
 
+def test_packaged_shutdown_keeps_launcher_owned_until_native_drain(tmp_path, monkeypatch, local_http):
+    from threading import Event
+    from maintenance.windows_launcher import run
+    app = installation(tmp_path, CAMERA_SOURCE='native', KIOSK_LOCK_FILE=str(tmp_path / 'kiosk.lock'))
+    app.config['UPDATE_INSTALL_ROOT'] = str(tmp_path)
+    app.extensions['launcher_stop'] = stop = Event()
+    waits = []
+    class Native:
+        def __init__(self, args, **kwargs):
+            assert args[-1] == 'kiosk'
+        def poll(self):
+            return None
+        def wait(self, timeout):
+            with pytest.raises(AlreadyRunning):
+                SingleInstanceLock(tmp_path / 'launcher.lock').acquire()
+            waits.append(timeout)
+            if len(waits) == 1:
+                raise subprocess.TimeoutExpired('native drain', timeout)
+            return 0
+    def browser(url):
+        stop.set()
+        return True
+    monkeypatch.setattr(subprocess, 'Popen', Native)
+    monkeypatch.setattr(webbrowser, 'open', browser)
+    run(app, console=LocalConsole())
+    assert len(waits) == 2
+    assert not (tmp_path / 'kiosk.lock.pause').exists()
+
+
 @pytest.mark.parametrize('blocked', ['duplicate', 'redirected', 'port'])
 def test_failed_or_duplicate_launcher_never_rotates_setup_access(tmp_path, monkeypatch, blocked, local_http):
     from maintenance.windows_launcher import run

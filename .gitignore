@@ -34,3 +34,9 @@ desktop.ini
 
 # File model AI (diunduh dengan models-download)
 model_files/
+
+# Paket distribusi dan public key yang dipasok pipeline build
+build/
+dist/
+distribution/update-public-key.bin
+.build-venv/

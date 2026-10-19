@@ -1,5 +1,10 @@
 # Memasang aplikasi eOffice pada Windows
 
+Untuk distribusi installer lengkap dan update GitHub, ikuti
+[panduan distribusi Windows](WINDOWS_DISTRIBUTION.md). Installer baru tidak
+menimpa instalasi ZIP lama. Bagian di bawah menjelaskan jalur bootstrap ZIP
+yang tetap tersedia untuk pengembangan dan pemulihan instalasi lama.
+
 Gunakan Windows 10/11 x64, Microsoft Edge/browser modern, kamera USB, dan
 koneksi internet untuk unduhan resmi serta API eOffice. Instalasi baru memakai
 SQLite lokal; Python, Git, XAMPP, file `.env`, dan path teknis tidak perlu

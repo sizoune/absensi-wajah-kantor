@@ -56,6 +56,7 @@ from routes.setup import bp as setup_bp
 import routes.setup_organization  # Register organization steps on the setup blueprint.
 import routes.settings_scope  # Completed setup requires local admin settings access.
 import routes.settings_token  # Device token replacement requires the same active local admin.
+import routes.settings_updates
 import routes.setup_models  # Register protected model preparation routes.
 import routes.setup_camera  # Camera/readiness repair uses the same setup/admin boundary.
 from maintenance.api_cli import register_api_commands
@@ -438,6 +439,8 @@ def create_app(config_name=None, overrides=None, instance_path=None):
     app.session_interface = BrowserSessionInterface()
     app.before_request(protect_browser_access)
     app.before_request(setup_service.hold_operational_requests)
+    from services.app_updates import update_guard
+    app.before_request(update_guard)
     csrf.init_app(app)
 
     app.register_blueprint(auth_bp)

@@ -24,6 +24,7 @@
         <a href="{{ url_for('setup.scope_page') }}">Cakupan perangkat</a>
         <a href="{{ url_for('setup.token_page') }}">Pulihkan akses perangkat</a>
         <a href="{{ url_for('setup.models_page') }}">Model pengenalan</a>
+        {% if config.get('UPDATE_INSTALL_ROOT') %}<a href="{{ url_for('setup.updates_page') }}">Pembaruan aplikasi</a>{% endif %}
         {% endif %}
         {% endif %}
         <a href="{{ url_for('kiosk.page') }}">Kios absensi</a>

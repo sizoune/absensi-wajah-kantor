@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Pembaruan aplikasi{% endblock %}
+{% block content %}
+<section class="card" id="app-updates" data-status-url="{{ url_for('setup.updates_status') }}">
+  <h1>Pembaruan aplikasi</h1>
+  <p>Versi terpasang: <strong id="installed-version">{{ update.version }}</strong></p>
+  <p id="update-message" role="status" aria-live="polite">{{ update.message }}</p>
+  <p id="update-version"></p>
+  <pre id="update-notes" style="white-space:pre-wrap"></pre>
+  <progress id="update-progress" hidden aria-label="Progres unduhan"></progress>
+  <p>Pemasangan menghentikan layanan absensi sementara. Data perangkat dan antrean tetap disimpan.</p>
+  <form method="post" action="{{ url_for('setup.updates_check') }}" class="update-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn" id="update-check">Periksa pembaruan</button>
+  </form>
+  <form method="post" action="{{ url_for('setup.updates_install') }}" class="update-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn" id="update-install" disabled>Unduh &amp; pasang update</button>
+  </form>
+</section>
+<script src="{{ url_for('static', filename='js/app_updates.js') }}" defer></script>
+{% endblock %}
