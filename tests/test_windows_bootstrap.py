@@ -15,9 +15,11 @@ def powershell(script):
     if executable is None:
         pytest.skip('PowerShell is unavailable; run these checks in Windows packaging CI.')
     path = str(ROOT / 'scripts' / 'pasang_windows.ps1').replace("'", "''")
+    # PowerShell 7 paths inherited through Python break Windows PowerShell module autoloading.
+    environment = {key: value for key, value in os.environ.items() if key.upper() != 'PSMODULEPATH'}
     return subprocess.run([executable, '-NoProfile', '-NonInteractive', '-Command',
         f"$ErrorActionPreference = 'Stop'; . '{path}'; {script}"],
-        capture_output=True, text=True, timeout=30)
+        capture_output=True, text=True, timeout=30, env=environment)
 
 
 def test_unverified_runtime_archive_is_rejected_before_use(tmp_path):

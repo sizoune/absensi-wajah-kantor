@@ -137,7 +137,7 @@ def extract_package(archive, destination, manifest):
                 raise UpdateError('Arsip melampaui batas ekstraksi.')
             seen = set()
             for entry in entries:
-                name = entry.filename.rstrip('/')
+                name = entry.orig_filename.rstrip('/')
                 parts = name.split('/')
                 mode = entry.external_attr >> 16
                 if (not name or PurePosixPath(name).is_absolute() or '\\' in name

@@ -54,7 +54,10 @@ def archive(entries):
     value = io.BytesIO()
     with zipfile.ZipFile(value, 'w') as z:
         for name, data in entries:
-            z.writestr(name, data)
+            info = name if isinstance(name, zipfile.ZipInfo) else zipfile.ZipInfo(name)
+            if isinstance(name, str):
+                info.filename = name  # Preserve malicious wire names on Windows as well as Unix.
+            z.writestr(info, data)
     return value.getvalue()
 
 
@@ -117,3 +120,18 @@ def test_network_disconnect_leaves_no_package(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         package.download_package({'url': 'ignored', 'size': 3, 'sha256': 'a' * 64}, tmp_path / 'package.zip')
     assert not list(tmp_path.iterdir())
+
+
+def test_original_zip_name_is_checked_before_windows_normalization(tmp_path, monkeypatch):
+    raw = archive([('a\\b', b'x')])
+    path = tmp_path / 'package.zip'
+    path.write_bytes(raw)
+    original = zipfile.ZipFile.infolist
+    def normalized(zf):
+        entries = original(zf)
+        for entry in entries:
+            entry.filename = entry.filename.replace('\\', '/')
+        return entries
+    monkeypatch.setattr(zipfile.ZipFile, 'infolist', normalized)
+    with pytest.raises(UpdateError):
+        extract_package(path, tmp_path / 'candidate', dict(size=len(raw), sha256=hashlib.sha256(raw).hexdigest()))
