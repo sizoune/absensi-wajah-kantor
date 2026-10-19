@@ -13,6 +13,7 @@ from uuid import uuid4
 import pytest
 
 from integration.clock import ClockUnavailable, TrustedClock
+from integration.sync import SyncStatus
 from integration.store import IntegrationStore
 
 # Task 1's synthetic event, kept local so transport tests need no sibling API checkout.
@@ -64,7 +65,7 @@ class Transport:
 
 
 def worker(store, client, clock=None):
-    from integration.sync import SyncWorker
+    from integration.sync import SyncStatus, SyncWorker
     value = SyncWorker(store, client, clock)
     value._monotonic = lambda: 10.0
     client._monotonic = lambda: value._monotonic()
@@ -214,7 +215,7 @@ def test_storage_error_is_distinct_and_preserves_rows_on_reopen(store, tmp_path)
 
 
 def test_background_worker_owns_separate_connection_bounded_queue_and_shutdown(store, tmp_path):
-    from integration.sync import SyncWorker
+    from integration.sync import SyncStatus, SyncWorker
     dedicated = IntegrationStore(tmp_path / 'eoffice.sqlite3', bytes(range(32)))
     assert dedicated._db is not store._db
     complete = threading.Event()
@@ -396,7 +397,7 @@ def test_failed_snapshot_clock_and_finish_writes_preserve_queue_and_cache(store,
 
 
 def test_timed_out_stop_does_not_close_live_connection_or_start_second_request(store, tmp_path):
-    from integration.sync import SyncWorker
+    from integration.sync import SyncStatus, SyncWorker
     dedicated = IntegrationStore(tmp_path / 'eoffice.sqlite3', bytes(range(32)))
     entered, release = threading.Event(), threading.Event()
     class Slow(Transport):
@@ -468,7 +469,7 @@ def test_nested_snapshot_does_not_starve_pending_send_and_later_refresh_recovers
 
 
 def test_nested_event_response_keeps_background_worker_alive_and_original_retry_bytes(store, tmp_path, monkeypatch):
-    from integration.sync import SyncWorker
+    from integration.sync import SyncStatus, SyncWorker
     client, requests = transport_client(monkeypatch, NESTED_RESPONSE)
     damaged = [True]
     original = store.pending()[0].body
@@ -495,3 +496,87 @@ def test_nested_event_response_keeps_background_worker_alive_and_original_retry_
         assert [request.data for request, _ in requests if request.data is not None] == [original, original]
     finally:
         assert value.stop(2)
+
+
+def test_revision_change_refreshes_immediately_without_rewriting_an_offline_event(store):
+    client = Transport([TimeoutError()], snapshot=copy.deepcopy(SNAPSHOT))
+    original = store.pending()[0].body
+    value = worker(store, client)
+    now = [10.]
+    value._monotonic = lambda: now[0]
+    client._monotonic = value._monotonic
+    revision = [SNAPSHOT['policy_revision']]
+    probes = []
+    client.policy_revision = lambda: probes.append(revision[0]) or revision[0]
+    value.run_once()
+    initial_calls = client.snap_calls
+    now[0] = 11.
+    client.replies.append(TimeoutError())
+    value.run_once()
+    assert probes and client.snap_calls == initial_calls
+    new = copy.deepcopy(SNAPSHOT)
+    new['snapshot_id'] = new['clock_anchor_id'] = str(uuid4())
+    new['policy_revision'] += 1
+    revision[0], client.snap = new['policy_revision'], new
+    now[0] = 12.
+    value.run_once()
+    assert client.snap_calls == initial_calls + 1
+    assert store.load_snapshot()['snapshot_id'] == new['snapshot_id']
+    assert store.pending()[0].body == original
+    assert not value.refreshing
+
+
+def test_stale_policy_terminal_triggers_refresh_without_waiting_sixty_seconds(store):
+    response = terminal(EVENT['event_id'], 'rejected')
+    response['data'].update(reason='historical_schedule_unavailable', ad_id=None, session=None)
+    new = copy.deepcopy(SNAPSHOT)
+    new['snapshot_id'] = new['clock_anchor_id'] = str(uuid4())
+    new['policy_revision'] += 1
+    client = Transport([response], snapshot=new)
+    value = worker(store, client)
+    value._next_snapshot = 100.
+    value.status = SyncStatus(snapshot_id=EVENT['snapshot_id'])
+    value.run_once()
+    assert client.snap_calls == 1
+    assert store.terminal(EVENT['event_id']) == response
+    assert not store.pending()
+    assert value.status.snapshot_id == new['snapshot_id']
+    assert not value.refreshing
+
+
+def test_failed_terminal_save_never_leaves_capture_suspended(store, monkeypatch):
+    response = terminal(EVENT['event_id'], 'rejected')
+    response['data'].update(reason='historical_schedule_unavailable', ad_id=None, session=None)
+    value = worker(store, Transport([response]))
+    monkeypatch.setattr(store, 'finish', lambda *a: (_ for _ in ()).throw(sqlite3.OperationalError('blocked')))
+    assert value.run_once().storage == 'error'
+    assert not value.refreshing
+    assert store.pending()
+
+
+@pytest.mark.parametrize('value', [True, 0, -1, 1.5, '2', 2**53])
+def test_revision_probe_rejects_untrusted_counter(monkeypatch, value):
+    client, requests = transport_client(monkeypatch, json.dumps({'policy_revision': value}).encode())
+    with pytest.raises(ValueError):
+        client.policy_revision()
+
+
+def test_revision_probe_uses_authenticated_bounded_transport(monkeypatch):
+    client, requests = transport_client(monkeypatch, b'{"policy_revision":92}')
+    assert client.policy_revision() == 92
+    request, timeout = requests[0]
+    assert request.full_url == 'https://example.test/base/api/kiosk/revision'
+    assert request.get_header('Authorization') == 'Bearer ' + 'a' * 64
+    assert timeout == 5
+
+
+def test_old_offline_rejection_does_not_refresh_an_already_new_gallery(store):
+    response = terminal(EVENT['event_id'], 'rejected')
+    response['data'].update(reason='historical_schedule_unavailable', ad_id=None, session=None)
+    client = Transport([response])
+    value = worker(store, client)
+    value.status = SyncStatus(snapshot_id=str(uuid4()))
+    value._next_snapshot = 100.
+    value.run_once()
+    assert client.snap_calls == 0
+    assert store.terminal(EVENT['event_id']) == response

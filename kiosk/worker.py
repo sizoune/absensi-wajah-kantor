@@ -112,6 +112,7 @@ class KioskWorker:
         self._integration_storage_error = False
         self._frame_time = None
         self._current_event: str | None = None
+        self._current_capture: EofficeEvent | None = None
         self._queued_tracks: set[int] = set()
         if self.eoffice:
             if (integration_store is None or sync_worker is None or trusted_clock is None
@@ -206,6 +207,10 @@ class KioskWorker:
                 snapshot = self.integration_store.load_snapshot()
                 if snapshot is not None:
                     from recognition.eoffice_identify import EofficeGallery
+                    for track in self.tracker.tracks:
+                        if (track.id not in self._queued_tracks and track.confirmed_id is not None
+                                and self.tracker._last_confirmed.get(track.confirmed_id) == track.confirmed_at):
+                            self.tracker._last_confirmed.pop(track.confirmed_id, None)
                     self.gallery = EofficeGallery(snapshot, self.eoffice_models, test_mode=self.test_mode)
             if status.storage == 'error':
                 self._say_eoffice('storage')
@@ -223,7 +228,20 @@ class KioskWorker:
                         display = {'check_in': 'check_in', 'check_out': 'check_out'}.get(data.get('session'), 'operator')
                     elif self.test_mode and outcome == 'test_recorded':
                         display = 'test_recorded'
+                    if outcome == 'rejected' and data.get('reason') == 'historical_schedule_unavailable':
+                        if self.sync_worker.refreshing:
+                            self._say_eoffice('syncing', self.message['first_name'], self._current_event)
+                            return
+                        if (self._current_capture is not None and self.gallery is not None
+                                and self.gallery.snapshot_id != self._current_capture.snapshot_id):
+                            # Only a failed capture releases its cooldown; successful receipts keep theirs.
+                            self.tracker._last_confirmed.pop(self._current_capture.pegawai_id, None)
+                            self.tracker.tracks.clear()
+                            self.tracker.provenance.clear()
+                            self._queued_tracks.clear()
+                            display = 'syncing'
                     self._say_eoffice(display, self.message['first_name'], self._current_event)
+                    self._current_capture = None
                     self._current_event = None
         except (OSError, sqlite3.Error, StoreIntegrityError):
             self._integration_storage_error = True
@@ -234,6 +252,13 @@ class KioskWorker:
             self.gallery = None
 
     def _enqueue_eoffice(self, event: EofficeEvent, *, validate_capture=None) -> str | None:
+        if self.sync_worker.refreshing:
+            if not event.in_cooldown:
+                self.tracker._last_confirmed.pop(event.pegawai_id, None)
+            self.tracker.tracks.clear()
+            self.tracker.provenance.clear()
+            self._say_eoffice('syncing', event.first_name)
+            return None
         if event.in_cooldown:
             self._say_eoffice('uncertain', event.first_name)
             return None
@@ -271,6 +296,7 @@ class KioskWorker:
             self._integration_storage_error = False
             self._queued_tracks.add(event.track_id)
             self._current_event = event_id
+            self._current_capture = event
             self._say_eoffice('pending', event.first_name, event_id)
             self.sync_worker.wake()
             return event_id
@@ -285,6 +311,9 @@ class KioskWorker:
         from recognition.eoffice_identify import recognize_eoffice_frame
         now = self.clock() if captured_at is None else captured_at
         self._capture_at = now
+        if self.sync_worker.refreshing:
+            self._say_eoffice('syncing', event_id=self._current_event)
+            return []
         if self.sync_worker.status.auth == 'paused' or self.sync_worker.status.storage == 'error':
             self._say_eoffice('storage' if self.sync_worker.status.storage == 'error' else 'operator')
             self.tracker.tracks.clear()

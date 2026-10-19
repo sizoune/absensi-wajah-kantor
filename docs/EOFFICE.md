@@ -79,6 +79,21 @@ dari **Identitas belum dipastikan** pada pengenalan lokal. Alasan teknis dan dat
 sensitif tidak ditampilkan pada layar publik. Hasil terminal lama tidak dikirim
 ulang sebagai event baru; setelah API diperbarui, gunakan scan baru.
 
+Kios produksi memeriksa `/api/kiosk/revision` setiap satu detik melalui token dan
+HTTPS yang sama. Jika revisi berubah, clock capture lama ditahan dan snapshot baru
+diambil segera; unduhan penuh berkala tetap menjadi pemeriksaan cadangan. Browser
+serta kepemilikan kamera tetap aktif selama sinkronisasi. Gangguan jaringan memakai
+backoff; antrean offline tidak diganti waktu, snapshot, UUID, ataupun buktinya.
+
+Jika revisi berubah di antara capture dan penerimaan server, hasil terminal lama
+tetap disimpan. Worker segera menyinkronkan snapshot yang masih dipakai, lalu
+melepaskan cooldown hanya untuk capture yang gagal tersebut. Wajah yang masih ada
+di depan kamera dikenali otomatis dari frame baru, dengan clock, sampel kualitas,
+dan liveness baru. Layar menampilkan **Memperbarui jadwal. Tetap di depan kamera**.
+Catatan berhasil tetap memiliki cooldown. Orang yang sudah pergi tidak dibuatkan
+bukti pengganti dari frame lama. Batas masuk/pulang tetap diperiksa pada capture baru.
+Deploy endpoint revisi API sebelum versi kios yang memeriksanya.
+
 Enqueue terenkripsi harus commit sebelum tampilan pending. Pesan masuk/pulang hanya dari respons resmi; duplicate mempertahankan catatan pertama. Angka “baru tercatat” adalah jumlah respons recorded yang baru diakui worker pada run ini, **bukan rekap harian**. Respons lama yang baru sampai boleh berbeda waktunya dari capture. Hasil terminal tersimpan tetap menjadi sumber kebenaran walaupun antrean notifikasi 32 item penuh; layar merekonsiliasi hasil aktif dan galeri paling sering 2 Hz.
 
 | Status/kondisi | Langkah |

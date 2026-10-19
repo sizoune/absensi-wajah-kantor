@@ -275,7 +275,7 @@ class BrowserCamera:
             from recognition.eoffice_identify import EofficeTracker
             worker.tracker = EofficeTracker(worker.tracker_settings)
             worker._queued_tracks.clear()
-            worker._frame_time = worker._current_event = worker.message = worker.hint = None
+            worker._frame_time = worker._current_event = worker._current_capture = worker.message = worker.hint = None
 
     def _run(self):
         worker, integration = None, {}

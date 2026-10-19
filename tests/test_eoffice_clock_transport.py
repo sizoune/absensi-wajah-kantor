@@ -144,3 +144,33 @@ def test_refresh_cannot_rewind_frames_captured_while_body_is_read(timed_sync, mo
     monkeypatch.setattr(client._opener, 'open', lambda *a, **k: response)
     assert sync.run_once().clock == 'ok'
     assert clock.event_time(now[0]) == before[0]
+
+
+@pytest.mark.parametrize('changed', [True, False])
+def test_revision_check_preserves_offline_clock_unless_a_change_is_known(timed_sync, monkeypatch, changed):
+    now, store, client, clock, sync, response = timed_sync
+    assert sync.run_once().clock == 'ok'
+    now[0] += 1
+    def check():
+        if changed:
+            return SNAPSHOT['policy_revision'] + 1
+        raise TimeoutError('revision endpoint offline')
+    monkeypatch.setattr(client, 'policy_revision', check)
+    monkeypatch.setattr(client, 'snapshot', lambda: (_ for _ in ()).throw(TimeoutError('snapshot offline')))
+    sync.run_once()
+    if changed:
+        with pytest.raises(ClockUnavailable):
+            clock.event_time(now[0])
+    else:
+        assert clock.event_time(now[0])['clock_anchor_id'] == SNAPSHOT['snapshot_id']
+    assert store.load_snapshot()['snapshot_id'] == SNAPSHOT['snapshot_id']
+
+
+def test_revision_rollback_never_authorizes_capture(timed_sync, monkeypatch):
+    now, store, client, clock, sync, response = timed_sync
+    assert sync.run_once().clock == 'ok'
+    now[0] += 1
+    monkeypatch.setattr(client, 'policy_revision', lambda: SNAPSHOT['policy_revision'] - 1)
+    assert sync.run_once().clock == 'unavailable'
+    with pytest.raises(ClockUnavailable):
+        clock.event_time(now[0])

@@ -31,6 +31,7 @@ CAMERA_STARTING = "starting"
 
 EOFFICE_MESSAGES = {
     'pending': ('info', 'Menunggu sinkronisasi'),
+    'syncing': ('info', 'Memperbarui jadwal. Tetap di depan kamera'),
     'check_in': ('success', 'Berhasil masuk'),
     'check_out': ('success', 'Berhasil pulang'),
     'duplicate': ('info', 'Sudah absen'),
@@ -41,7 +42,7 @@ EOFFICE_MESSAGES = {
     'operator': ('error', 'Hubungi operator'),
 }
 
-EOFFICE_TEST_MESSAGES = {key: EOFFICE_MESSAGES[key] for key in ('pending', 'uncertain', 'rejected', 'storage', 'operator')}
+EOFFICE_TEST_MESSAGES = {key: EOFFICE_MESSAGES[key] for key in ('pending', 'syncing', 'uncertain', 'rejected', 'storage', 'operator')}
 EOFFICE_TEST_MESSAGES['test_recorded'] = ('info', 'Uji tersimpan')
 
 

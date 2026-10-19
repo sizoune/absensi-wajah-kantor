@@ -540,3 +540,83 @@ def test_server_rejection_is_distinct_from_local_identity_uncertainty(kiosk, rea
     message = public_view(worker.state.read(), now=now[0])['message']
     assert 'Presensi ditolak server' in message['text']
     assert reason not in message['text']
+
+
+def test_stale_revision_recovers_with_fresh_frames_and_releases_only_failed_cooldown(kiosk):
+    worker, now, scene = kiosk
+    old, = capture(kiosk)
+    rejected = terminal(old.event_id, 'rejected')
+    rejected['data'].update(reason='historical_schedule_unavailable', ad_id=None, session=None)
+    worker.sync_worker.store.finish(old.event_id, rejected)
+    new = copy.deepcopy(scene[0])
+    new['snapshot_id'] = new['clock_anchor_id'] = str(uuid4())
+    new['policy_revision'] += 1
+    worker.sync_worker.store.replace_snapshot(new)
+    worker.sync_worker._publish(SyncStatus(snapshot_id=new['snapshot_id']))
+    from datetime import timedelta
+    server_time = datetime.fromisoformat(new['issued_at']) + timedelta(seconds=.8)
+    worker.trusted_clock.anchor(server_time, new['snapshot_id'], .8, issued_at=new['issued_at'])
+    now[0] = .8
+    worker.reconcile_eoffice(force=True)
+    assert worker.message['status'] == 'syncing'
+    assert not worker.tracker._last_confirmed
+    for t in (.9, 1., 1.1):
+        now[0] = t
+        worker.run_once()
+    fresh, = worker.integration_store.pending()
+    body = json.loads(fresh.body)
+    assert fresh.event_id != old.event_id
+    assert body['snapshot_id'] == new['snapshot_id']
+    assert body['evidence']['samples'] >= 3
+    assert worker.integration_store.terminal(old.event_id) == rejected
+
+
+def test_refresh_holds_new_capture_without_revoking_browser_ownership(kiosk):
+    worker, now, scene = kiosk
+    worker.sync_worker._refreshing.set()
+    assert not capture(kiosk)
+    assert worker.message['status'] == 'syncing'
+    worker.sync_worker._refreshing.clear()
+    for t in (.4, .5, .6):
+        now[0] = t
+        worker.run_once()
+    assert len(worker.integration_store.pending()) == 1
+
+
+def test_revision_refresh_starting_during_inference_does_not_consume_confirmation(kiosk, monkeypatch):
+    worker, now, scene = kiosk
+    handle = worker.handle_event
+    def hold(event, **kwargs):
+        worker.sync_worker._refreshing.set()
+        return handle(event, **kwargs)
+    monkeypatch.setattr(worker, 'handle_event', hold)
+    assert not capture(kiosk)
+    assert not worker.tracker._last_confirmed
+    worker.sync_worker._refreshing.clear()
+    monkeypatch.setattr(worker, 'handle_event', handle)
+    for t in (.4, .5, .6):
+        now[0] = t
+        worker.run_once()
+    assert len(worker.integration_store.pending()) == 1
+
+
+def test_successful_receipt_keeps_cooldown_across_snapshot_refresh(kiosk):
+    worker, now, scene = kiosk
+    old, = capture(kiosk)
+    worker.sync_worker.store.finish(old.event_id, terminal(old.event_id))
+    original = dict(worker.tracker._last_confirmed)
+    new = copy.deepcopy(scene[0])
+    new['snapshot_id'] = new['clock_anchor_id'] = str(uuid4())
+    worker.sync_worker.store.replace_snapshot(new)
+    worker.sync_worker._publish(SyncStatus(snapshot_id=new['snapshot_id']))
+    from datetime import timedelta
+    worker.trusted_clock.anchor(datetime.fromisoformat(new['issued_at']) + timedelta(seconds=.8),
+                                new['snapshot_id'], .8, issued_at=new['issued_at'])
+    now[0] = .8
+    worker.reconcile_eoffice(force=True)
+    assert worker.message['status'] == 'check_in'
+    for t in (.9, 1., 1.1):
+        now[0] = t
+        worker.run_once()
+    assert not worker.integration_store.pending()
+    assert worker.tracker._last_confirmed == original

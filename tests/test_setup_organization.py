@@ -18,7 +18,8 @@ ORGANIZATIONS={'device':IDENTITY,'organizations':[{'skpd_id':9,'name':'SKPD Uji'
 @pytest.fixture
 def wizard(tmp_path, monkeypatch):
     replies={'/api/kiosk/organizations':ORGANIZATIONS,'/api/kiosk/scope':IDENTITY,
-             '/api/kiosk/snapshot':SNAPSHOT}
+             '/api/kiosk/snapshot':SNAPSHOT,
+             '/api/kiosk/revision':{'policy_revision':SNAPSHOT['policy_revision']}}
     calls=[]
     def open_remote(opener, request, **kwargs):
         calls.append(request)

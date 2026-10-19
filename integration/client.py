@@ -163,6 +163,15 @@ class EofficeClient:
         EofficeClient.validate_scope({key: value[key] for key in ('skpd_id', 'scope_type', 'subunit_id')})
         return value
 
+    def policy_revision(self) -> int:
+        code, value, *_ = self._request(self._path + '/revision', None, 1024)
+        if code != 200:
+            raise RequestFailure(code)
+        if (set(value) != {'policy_revision'} or type(value['policy_revision']) is not int
+                or not 0 < value['policy_revision'] <= 2**53-1):
+            raise ValueError('Invalid server policy revision')
+        return value['policy_revision']
+
     def identity(self):
         code, value, *_ = self._request(self._path + '/identity', None, 16 * 1024)
         if code != 200:

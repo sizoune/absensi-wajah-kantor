@@ -22,6 +22,7 @@ class SyncClient(Protocol):
     snapshot_received_wall_time: float | None
     snapshot_uncertainty_seconds: float | None
     def snapshot(self) -> dict[str, JSONValue]: ...
+    def policy_revision(self) -> int: ...
     def send(self, event_bytes: bytes) -> dict[str, JSONValue]: ...
 
 
@@ -48,7 +49,9 @@ class SyncWorker:
         self.results: Queue[SyncStatus] = Queue(maxsize=32)
         self.status = SyncStatus()
         self._monotonic: Callable[[], float] = time.monotonic
-        self._next_snapshot = self._next_events = 0.0
+        self._next_snapshot = self._next_events = self._next_revision = 0.0
+        self._revision_failures = 0
+        self._refreshing = Event()
         self._snapshot_failures = self._event_failures = 0
         self._stop, self._wake = Event(), Event()
         self._lock = RLock()
@@ -72,7 +75,45 @@ class SyncWorker:
             return replace(status, auth='paused')
         return replace(status, connection='error' if isinstance(error, ValueError) else 'offline')
 
+    @property
+    def refreshing(self) -> bool:
+        return self._refreshing.is_set()
+
     def _refresh(self, status: SyncStatus) -> SyncStatus:
+        self._refreshing.set()
+        try:
+            status = self._download_snapshot(status)
+            self.status = status
+            self._next_revision = self._monotonic() + 1
+            return status
+        finally:
+            self._refreshing.clear()
+
+    def _check_revision(self, status: SyncStatus) -> SyncStatus:
+        try:
+            revision = self.client.policy_revision()
+            snapshot = self.store.load_snapshot()
+            if snapshot is not None and revision < snapshot['policy_revision']:
+                if self.clock is not None:
+                    self.clock.invalidate()
+                raise ValueError('Server policy revision moved backwards')
+            self._revision_failures = 0
+            self._next_revision = self._monotonic() + 1
+            if (snapshot is None or revision != snapshot['policy_revision']
+                    or self.clock is not None and status.clock != 'ok'):
+                if self.clock is not None:
+                    self.clock.invalidate()
+                return self._refresh(status)
+            return replace(status, connection='online')
+        except (OSError, sqlite3.Error, HTTPException, ValueError, RequestFailure, StoreIntegrityError) as error:
+            if self.clock is not None and isinstance(error, ValueError):
+                self.clock.invalidate()
+                status = replace(status, clock='unavailable')
+            self._revision_failures += 1
+            self._next_revision = self._monotonic() + min(2 ** min(self._revision_failures - 1, 6), 60)
+            return self._failure(status, error)
+
+    def _download_snapshot(self, status: SyncStatus) -> SyncStatus:
         try:
             snapshot = self.client.snapshot()
             validate_snapshot(snapshot, test_mode=self.store.test_mode)
@@ -113,14 +154,18 @@ class SyncWorker:
                 return replace(status, retry_after=60.0)
             status = replace(status, storage='ok')
             now = self._monotonic()
+            probe = not self.store.test_mode and callable(getattr(self.client, 'policy_revision', None))
             if require_fresh_snapshot or now >= self._next_snapshot:
                 status = self._refresh(status)
+            elif probe and now >= self._next_revision:
+                status = self._check_revision(status)
             if (status.auth == 'paused' or self._stop.is_set()
                     or require_fresh_snapshot and status.clock != 'ok'):
                 status = replace(status, retry_after=60.0)
                 self._publish(status)
                 return status
             pending: list[PendingEvent] = []
+            recovered_snapshots: set[str] = set()
             try:
                 # pending authenticates retained history once; its cursor closes before network I/O.
                 pending = sorted(self.store.pending(), key=self._order)
@@ -132,13 +177,26 @@ class SyncWorker:
                         try:
                             result = self.client.send(entry.body)
                             validate_terminal_response(entry.event_id, result, test_mode=self.store.test_mode)
-                            self.store.finish(entry.event_id, result)
+                            stale_policy = (result.get('data', {}).get('outcome') == 'rejected'
+                                            and result.get('data', {}).get('reason') == 'historical_schedule_unavailable'
+                                            and json.loads(entry.body)['snapshot_id'] == status.snapshot_id
+                                            and status.snapshot_id not in recovered_snapshots)
+                            if stale_policy:
+                                recovered_snapshots.add(status.snapshot_id)
+                                self._refreshing.set()
+                            try:
+                                self.store.finish(entry.event_id, result)
+                            except BaseException:
+                                self._refreshing.clear()
+                                raise
                             self._event_failures = 0
                             self._next_events = self._monotonic()
                             status = replace(status, connection='online', events_sent=status.events_sent + 1,
                                              event_id=entry.event_id, response=result,
                                              recorded_count=status.recorded_count + int(result.get('data', {}).get('outcome') ==
                                                  ('test_recorded' if self.store.test_mode else 'recorded')))
+                            if stale_policy:
+                                status = self._refresh(status)
                             self._publish(replace(status, gallery_changed=False))
                             if was_offline:
                                 self._next_snapshot = self._monotonic()
@@ -151,6 +209,8 @@ class SyncWorker:
                 status = replace(self._failure(status, error), storage='error')
             now = self._monotonic()
             delays = [self._next_snapshot - now]
+            if probe:
+                delays.append(self._next_revision - now)
             if pending and status.events_sent < len(pending):
                 delays.append(self._next_events - now)
             if status.storage == 'error' or status.auth == 'paused':
