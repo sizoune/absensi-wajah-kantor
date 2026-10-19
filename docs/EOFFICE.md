@@ -2,6 +2,22 @@
 
 **Status: belum diterima untuk aktivasi resmi.** Integrasi hanya masuk pagi dan pulang. Enrollment berasal dari e-office untuk pegawai Diskominfo aktif yang diizinkan; tidak ada enrollment ulang, sesi istirahat/event, atau perbandingan vektor beda model. Catatan sah yang commit pertama tetap berlaku. Lihat [QA penerimaan](qa/2026-10-14-eoffice-camera-acceptance.md) sebelum menyetujui penggunaan resmi.
 
+## Batas waktu masuk dan pulang
+
+Mode integrasi mengikuti jadwal E-office, tanpa memakai toleransi waktu standalone.
+Masuk terlambat tetap diterima selama jendela masuk masih terbuka, dengan durasi
+keterlambatan dan potongan TPP seperti mobile. Scan ulang sebelum jam pulang hanya
+dianggap sudah absen jika sesi masuk telah terisi; tidak otomatis mencatat pulang.
+
+Presensi pulang kamera baru dibuka saat jam pulang dimulai dan ditutup pada batas
+akhirnya (inklusif). Tepat pada batas masuk/pulang yang berimpit, server memilih
+pulang. Pulang cepat hanya melalui mobile, termasuk konfirmasi dan potongannya.
+Catatan pertama dari mobile/kamera/admin tetap berlaku. Di luar jendela presensi,
+kios menampilkan **Di luar jadwal** dan tidak menganggapnya sebagai presensi berhasil.
+Keputusan memakai waktu capture walaupun kejadian baru terkirim setelah offline.
+Perilaku batas peralihan ini memerlukan pembaruan resolver pada API integrasi;
+pembaruan aplikasi kamera saja tidak mengubah keputusan server.
+
 ## Setup pertama dan kesiapan kamera
 
 Wizard `/setup` memakai kode lokal sekali pakai, admin lokal, token perangkat, cakupan yang disetujui server, dan snapshot terenkripsi. Instalasi baru menyiapkan anti-foto pasif otomatis. Snapshot awal valid yang kosong boleh menyelesaikan setup; unduhan snapshot gagal tidak boleh. Model atau kamera yang belum siap tetap dapat diperbaiki setelah login admin melalui **Kesiapan perangkat**. Setelah selesai, kode dan akses setup pertama ditutup.
