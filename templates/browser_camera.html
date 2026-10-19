@@ -8,6 +8,11 @@
   data-challenge-url="{{ url_for('setup.browser_preview', action='challenge') if camera_preview else url_for('kiosk.camera_challenge') }}"
   data-frame-url="{{ url_for('setup.browser_preview', action='frame') if camera_preview else url_for('kiosk.camera_frame') }}"
   data-stop-url="{{ url_for('setup.browser_preview', action='stop') if camera_preview else url_for('kiosk.camera_stop') }}">
+  <div class="camera-viewport">
+    <video id="browser-camera-video" aria-label="Pratinjau kamera lokal" autoplay muted playsinline hidden></video>
+    <div class="camera-placeholder" aria-hidden="true"><svg class="camera-glyph" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3"/></svg><strong>Pratinjau kamera</strong><span>Aktifkan kamera untuk mulai.</span></div>
+  </div>
+  <div class="camera-settings">
   <h2 id="browser-camera-label">{% if camera_preview or config.ATTENDANCE_MODE != 'eoffice' %}Uji pratinjau kamera — tidak mencatat absensi{% elif config.EOFFICE_TEST_MODE %}Gambar diproses untuk uji pengenalan{% else %}Gambar diproses oleh layanan e-office{% endif %}</h2>
   <p>Browser harus tetap terbuka dan izin kamera diberikan agar kamera aktif.</p>
   <label for="browser-camera-device">Kamera browser</label>
@@ -23,6 +28,6 @@
   {% if not (current_user.is_authenticated and current_user.is_active and current_user.role == 'admin') %}
   <p>Admin lokal dapat menghentikan sesi kamera lama setelah <a href="{{ url_for('auth.login', next=url_for('kiosk.page')) }}">login admin</a>.</p>
   {% endif %}
-  <video id="browser-camera-video" aria-label="Pratinjau kamera lokal" autoplay muted playsinline hidden></video>
+  </div>
   <noscript>Aktifkan JavaScript di browser untuk menggunakan kamera.</noscript>
 </section>

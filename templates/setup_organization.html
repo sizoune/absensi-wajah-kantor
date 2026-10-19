@@ -1,5 +1,7 @@
 <section aria-labelledby="organization-title">
-  <h2 id="organization-title">SKPD dan cakupan perangkat</h2>
+  <p class="eyebrow">SKPD dan cakupan perangkat</p>
+  <h2 id="organization-title">Hubungkan perangkat.</h2>
+  <p class="muted">Gunakan token resmi dari menu Kios Presensi di web admin.</p>
   {% if not scope_management %}
   <form method="post" action="{{ url_for('setup.credentials') }}" class="form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

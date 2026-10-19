@@ -1,0 +1,32 @@
+/* SpaceXAI light foundations from the shared Pencil design system. */
+:root {
+  --ink: #0a0a0a;
+  --muted: #616161;
+  --paper: #fff;
+  --surface: #f9f8f6;
+  --surface-strong: #f2f1ef;
+  --line: #d5d9e2;
+  --control-line: #737373;
+  --brand: #0a0a0a;
+  --brand-dark: #262626;
+  --accent: #ff6308;
+  --ok: #187044;
+  --ok-bg: #ecfdf3;
+  --info: #175cd3;
+  --info-bg: #eff8ff;
+  --warn: #8a4b08;
+  --warn-bg: #fffaeb;
+  --error: #b42318;
+  --error-bg: #fef3f2;
+  --focus: #175cd3;
+  --font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.eyebrow { font-size: 0.75rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.camera-viewport { width: 100%; min-width: 0; position: relative; display: grid; place-items: center; aspect-ratio: 4 / 3; background: var(--surface-strong); border-radius: 16px; overflow: hidden; }
+.camera-viewport video { display: block; width: 100%; height: 100%; object-fit: contain; }
+.camera-placeholder { display: flex; align-items: center; flex-direction: column; gap: 12px; padding: 24px; color: var(--muted); text-align: center; }
+.camera-placeholder strong { font-size: 1.25rem; color: var(--ink); font-weight: 500; }
+.camera-glyph { font-size: 3rem; line-height: 1; }
+.camera-viewport video:not([hidden]) + .camera-placeholder { display: none; }
+[hidden] { display: none !important; }
+:where(button, a, input, select, summary):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

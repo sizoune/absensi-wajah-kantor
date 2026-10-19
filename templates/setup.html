@@ -1,19 +1,29 @@
 {% extends "base.html" %}
 {% block title %}Setup perangkat{% endblock %}
-{% block page_class %}page-narrow{% endblock %}
+{% block page_class %}setup-page{% endblock %}
 {% block content %}
-<section class="card">
-  <h1 class="card-title">Setup perangkat absensi</h1>
+<div class="setup-layout">
+<aside class="setup-intro">
+  <p class="eyebrow">Pengaturan perangkat</p>
+  <h1>Siapkan kios Anda.</h1>
+  <p class="muted">Kemajuan tersimpan. Lanjutkan tahap yang belum selesai.</p>
   {% if access %}
-  <p>Kemajuan tersimpan. Langkah yang belum selesai:</p>
+  <p class="eyebrow setup-progress-label">Langkah yang belum selesai</p>
   {% set labels = {'storage': 'Penyimpanan dan kunci enkripsi', 'admin': 'Admin lokal',
                    'organization': 'SKPD dan cakupan perangkat', 'models': 'Model pengenalan',
                    'snapshot': 'Snapshot enrollment', 'camera': 'Pemeriksaan kamera'} %}
   <ul>{% for step, label in labels.items() %}<li data-setup-step="{{ step }}"{% if step not in status.pending %} hidden{% endif %}>{{ label }}</li>{% endfor %}</ul>
+  {% endif %}
+  <p class="setup-note">Token dan cakupan diterbitkan melalui menu Kios Presensi di web admin. Kamera dan izin browser diatur di perangkat ini.</p>
+</aside>
+<section class="setup-content" aria-label="Setup perangkat absensi">
+  {% if access %}
   {% if not status.steps.storage %}
   <p role="alert">Kunci enkripsi belum tersedia atau tidak dapat dibaca. Pulihkan kunci asli dari cadangan; data lama tetap disimpan.</p>
   {% endif %}
   {% if not status.steps.admin %}
+  <h2>Buat admin lokal.</h2>
+  <p class="muted">Akun ini digunakan untuk mengelola perangkat di komputer ini.</p>
   <form method="post" action="{{ url_for('setup.first_admin') }}" class="form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label for="username">Username admin pertama</label>
@@ -23,13 +33,14 @@
     <button type="submit" class="btn">Buat admin</button>
   </form>
   {% else %}
-  <p>Akun admin yang ada tetap digunakan.</p>
+  <p class="setup-account">✓ Admin lokal sudah tersedia. Akun yang ada tetap digunakan.</p>
   {% include 'setup_organization.html' %}
   {% endif %}
   {% include "setup_models.html" %}
   {% include "setup_camera.html" %}
   {% include "setup_readiness.html" %}
   {% else %}
+  <h2>Buka setup perangkat.</h2>
   <p>Gunakan kode setup dari perintah lokal <code>flask --app app setup-code</code>.</p>
   <form method="post" class="form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -39,4 +50,5 @@
   </form>
   {% endif %}
 </section>
+</div>
 {% endblock %}

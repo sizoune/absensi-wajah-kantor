@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Admin{% endblock %} — Absensi Wajah Diskominfo Tabalong</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {% if config.ATTENDANCE_MODE == 'eoffice' or request.blueprint == 'setup' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/device.css') }}">{% endif %}
 </head>
-<body>
+<body{% if config.ATTENDANCE_MODE == 'eoffice' or request.blueprint == 'setup' %} class="device-admin"{% endif %}>
   <header class="topbar">
     <div class="topbar-inner">
       <a class="brand" href="{{ url_for('auth.dashboard') if current_user.is_authenticated else url_for('auth.login') }}">
