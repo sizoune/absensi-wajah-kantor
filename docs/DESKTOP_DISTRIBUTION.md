@@ -99,9 +99,12 @@ dan Linux x64 pada runner native. PR menjalankan regresi dan build dengan key
 uji; tag atau workflow_dispatch membangun produksi dari tag yang sama dengan
 `app_version.VERSION`. Satu job rilis menunggu semua build, memverifikasi key
 publik setiap artefak terhadap private key, menandatangani manifest tiap platform,
-lalu membuat satu draft. Environment/key yang sudah ada, `windows-release`,
-`UPDATE_PUBLIC_KEY` dan `UPDATE_SIGNING_KEY`, tetap digunakan. Tidak ada publikasi
-otomatis; jangan memasukkan private key ke job build atau PR.
+lalu mengunggah seluruh aset ke draft sementara. Setelah unggahan berhasil,
+workflow otomatis mempublikasikan release dan menandainya **Latest**, tanpa
+menekan tombol Publish atau approval manual. Build, signing atau unggahan yang
+gagal tidak dipublikasikan. Environment/key yang sudah ada, `windows-release`,
+`UPDATE_PUBLIC_KEY` dan `UPDATE_SIGNING_KEY`, tetap digunakan; environment tidak
+memakai required reviewers. Jangan memasukkan private key ke job build atau PR.
 
 Build POSIX memakai CPython 3.11.17 native, environment terisolasi dan lock hash:
 
@@ -136,9 +139,11 @@ Dependency build `ml-dtypes` Intel juga dikunci ke 0.5.4 untuk ABI NumPy 1.x.
 Constraint POSIX menahan backports-strenum pada 1.2.8 karena 1.3.1 menyatakan
 Python <3.11 meskipun diminta LiteRT secara unconditional.
 
-## Gerbang publikasi stabil
+## Validasi sebelum tag rilis
 
-Catat hasil per OS/arsitektur dan hash paket dari draft yang sama:
+Selesaikan pengujian operasional sebelum mendorong tag produksi karena tag
+memicu publikasi otomatis. Gunakan artefak build uji dan catat hasil per
+OS/arsitektur serta hash paket:
 
 - Instalasi bersih tanpa Python/Git/Docker; path spasi/Unicode; port bentrok;
   dua peluncur; izin kamera ditolak, dicabut, lalu dipulihkan; restart/login ulang.
@@ -171,4 +176,4 @@ Apple tidak termasuk rilis ini.
   desktop atau kamera fisik.
 - Paket lokal memakai **key uji** dan belum dipublikasikan. Build Windows CI,
   versi OS minimum, kamera fisik, update operasional A→B dan penerimaan model
-  tetap harus diselesaikan sebelum publikasi stabil.
+  tetap harus diselesaikan sebelum mendorong tag produksi.

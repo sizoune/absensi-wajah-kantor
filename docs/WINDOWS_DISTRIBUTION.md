@@ -42,10 +42,11 @@ dan cadangan terakhir. Skema asing/lebih baru ditolak.
 Build Windows dari dependency/tool pin; uji inferensi fixture OpenCV, ONNX
 Runtime dan LiteRT dari executable. Regresi penuh berjalan pada PR, sedangkan
 build produksi melewatinya; self-check dan inferensi executable tetap wajib.
-PR membangun paket; proses rilis manual
-dari tag membuat draft bertanda tangan. Publikasi stabil menunggu smoke test
-Windows bersih, kamera fisik, login/restart dan kegagalan update. Sertifikat
-Authenticode aplikasi terpisah dari signature updater.
+PR membangun paket uji; push tag rilis membangun keempat target, menandatangani
+metadata, lalu otomatis mempublikasikan release setelah seluruh aset terunggah.
+Selesaikan smoke test Windows bersih, kamera fisik, login/restart dan kegagalan
+update sebelum mendorong tag produksi. Sertifikat Authenticode aplikasi
+terpisah dari signature updater.
 
 ## Catatan pelaksanaan
 
@@ -79,8 +80,8 @@ Authenticode aplikasi terpisah dari signature updater.
    ```
 
 2. Isi repository variable `UPDATE_PUBLIC_KEY` dengan isi berkas public key.
-   Buat GitHub Environment `windows-release`, batasi ke tag rilis dan aktifkan
-   required reviewers. Isi environment secret `UPDATE_SIGNING_KEY` dengan
+   Buat GitHub Environment `windows-release`, batasi ke tag rilis tanpa
+   required reviewers agar publikasi otomatis. Isi secret `UPDATE_SIGNING_KEY` dengan
    private seed base64. Private key tidak dibutuhkan job build atau PR.
 3. Pada Windows x64 dengan CPython 3.11.17, jalankan:
 
@@ -102,8 +103,8 @@ Authenticode aplikasi terpisah dari signature updater.
 4. Ubah `app_version.VERSION` dan `distribution/RELEASE_NOTES.md` untuk rilis
    berikutnya. Push tag `v<VERSION>` pada commit yang sudah ditinjau untuk
    memulai build produksi; workflow juga dapat dijalankan manual dengan tag
-   tersebut. Workflow membangun keempat target desktop dan hanya membuat
-   draft, tidak menerbitkan versi stabil. Key uji PR tidak dapat ditandatangani
+   tersebut. Workflow membangun keempat target desktop, mengunggah aset ke draft
+   sementara, lalu otomatis mempublikasikannya sebagai **Latest**. Key uji PR tidak dapat ditandatangani
    oleh proses rilis. Jangan mengganti public key antarversi tanpa rancangan
    rotasi kepercayaan; updater versi 1 menggunakan pasangan kunci yang sama.
 
@@ -160,10 +161,11 @@ Pemulihan password admin lokal tersedia melalui `launch.ps1 -ResetAdminPassword`
 Tutup peluncur sebelum menjalankannya. Kode setup dan prompt password hanya
 ditampilkan di konsol lokal, bukan log.
 
-## Gerbang publikasi stabil
+## Validasi sebelum tag rilis
 
 Catat hasil pemeriksaan pada issue #13, beserta versi Windows, arsitektur,
-kamera, versi paket dan hash installer. Lakukan dari draft yang sama:
+kamera, versi paket dan hash installer. Gunakan artefak build uji dan
+selesaikan pemeriksaan sebelum mendorong tag produksi:
 
 - Windows 10/11 bersih tanpa Python/Git/Docker; nama akun/path dengan spasi dan
   Unicode; UAC ditolak, runtime perlu restart, port 5000 dipakai, startup ganda.
@@ -183,7 +185,7 @@ kamera, versi paket dan hash installer. Lakukan dari draft yang sama:
 - Paket/manifest/signature diubah harus ditolak. Uji admin kedaluwarsa,
   non-admin, CSRF salah dan dua permintaan update bersamaan.
 
-Publikasikan draft hanya setelah hasil dicatat dan lulus. Build CI dan tes
-unit tidak menggantikan pengujian kamera fisik atau sertifikat Authenticode
+Tag rilis memicu publikasi otomatis setelah build/signing/unggahan lulus.
+Build CI dan tes unit tidak menggantikan pengujian kamera fisik atau sertifikat Authenticode
 Windows. Tanpa sertifikat Authenticode aplikasi, SmartScreen dapat menampilkan
 peringatan walaupun signature updater valid.

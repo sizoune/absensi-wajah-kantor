@@ -144,7 +144,7 @@ jobs:
             build/build-info.json
             distribution/update-public-key.bin
           if-no-files-found: error
-  draft-release:
+  publish-release:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
     needs: [build, build-posix]
     runs-on: windows-2022
@@ -176,7 +176,7 @@ jobs:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: python scripts/release_desktop.py artifacts
-      - name: Create draft only
+      - name: Upload all release assets
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
@@ -184,4 +184,12 @@ jobs:
         run: |
           $assets = @(Get-ChildItem 'artifacts/*/dist/release/*' -File | ForEach-Object { $_.FullName })
           gh release create $env:RELEASE_TAG @assets --repo sizoune/absensi-wajah-kantor --draft --verify-tag --title $env:RELEASE_TAG --notes-file distribution/RELEASE_NOTES.md
-          if ($LASTEXITCODE -ne 0) { throw 'Draft release gagal dibuat; tidak ada publikasi otomatis.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Unggahan aset rilis gagal; release belum dipublikasikan.' }
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        shell: powershell
+        run: |
+          gh release edit $env:RELEASE_TAG --repo sizoune/absensi-wajah-kantor --draft=false --latest --verify-tag
+          if ($LASTEXITCODE -ne 0) { throw 'Publikasi release gagal.' }

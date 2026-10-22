@@ -48,8 +48,9 @@ pemulihan.
 Distribusi installer kios eOffice disiapkan melalui workflow **Desktop
 distribution**: `AbsensiSetup.exe` membawa runtime dan dependensi, lalu
 membuka wizard setup lokal. Update berikutnya melalui **Pembaruan aplikasi**
-pada admin lokal menggunakan paket GitHub bertanda tangan. Rilis tetap draft
-sampai pengujian Windows dan kamera fisik lulus. Penyiapan kunci build,
+pada admin lokal menggunakan paket GitHub bertanda tangan. Push tag rilis
+memicu build keempat platform dan publikasi otomatis setelah semua build,
+signing dan unggahan aset berhasil. Penyiapan kunci build,
 pemulihan, dan pemeriksaan rilis ada di
 [docs/WINDOWS_DISTRIBUTION.md](docs/WINDOWS_DISTRIBUTION.md).
 
