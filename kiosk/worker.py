@@ -113,6 +113,7 @@ class KioskWorker:
         self._frame_time = None
         self._current_event: str | None = None
         self._current_capture: EofficeEvent | None = None
+        self._eoffice_message_identity: tuple[int, str] | None = None
         self._queued_tracks: set[int] = set()
         if self.eoffice:
             if (integration_store is None or sync_worker is None or trusted_clock is None
@@ -260,7 +261,10 @@ class KioskWorker:
             self._say_eoffice('syncing', event.first_name)
             return None
         if event.in_cooldown:
-            self._say_eoffice('uncertain', event.first_name)
+            if (self.message and self._eoffice_message_identity == (event.pegawai_id, self.message['id'])
+                    and self.wall_clock() - self.message['at'] <= ks.MESSAGE_SECONDS):
+                return None
+            self._say_eoffice('cooldown', event.first_name)
             return None
         if event.track_id in self._queued_tracks:
             return None
@@ -297,6 +301,7 @@ class KioskWorker:
             self._queued_tracks.add(event.track_id)
             self._current_event = event_id
             self._current_capture = event
+            self._eoffice_message_identity = (event.pegawai_id, event_id)
             self._say_eoffice('pending', event.first_name, event_id)
             self.sync_worker.wake()
             return event_id

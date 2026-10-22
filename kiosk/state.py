@@ -35,6 +35,7 @@ EOFFICE_MESSAGES = {
     'check_in': ('success', 'Berhasil masuk'),
     'check_out': ('success', 'Berhasil pulang'),
     'duplicate': ('info', 'Sudah absen'),
+    'cooldown': ('info', 'Tunggu sebentar sebelum memindai ulang'),
     'outside_schedule': ('warning', 'Di luar jadwal'),
     'uncertain': ('warning', 'Identitas belum dipastikan'),
     'rejected': ('warning', 'Presensi ditolak server. Hubungi operator'),
@@ -42,7 +43,7 @@ EOFFICE_MESSAGES = {
     'operator': ('error', 'Hubungi operator'),
 }
 
-EOFFICE_TEST_MESSAGES = {key: EOFFICE_MESSAGES[key] for key in ('pending', 'syncing', 'uncertain', 'rejected', 'storage', 'operator')}
+EOFFICE_TEST_MESSAGES = {key: EOFFICE_MESSAGES[key] for key in ('pending', 'syncing', 'cooldown', 'uncertain', 'rejected', 'storage', 'operator')}
 EOFFICE_TEST_MESSAGES['test_recorded'] = ('info', 'Uji tersimpan')
 
 

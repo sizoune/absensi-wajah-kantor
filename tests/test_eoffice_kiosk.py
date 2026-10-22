@@ -164,6 +164,38 @@ def test_terminal_display_outcomes(kiosk, outcome, expected):
     assert worker.message['status'] == expected
 
 
+@pytest.mark.parametrize('outcome', [None, 'recorded', 'duplicate', 'rejected'])
+def test_cooldown_preserves_same_person_receipt(kiosk, outcome):
+    worker, now, _ = kiosk
+    event, = capture(kiosk)
+    scan = replace(worker._current_capture, in_cooldown=True)
+    if outcome:
+        worker.integration_store.finish(event.event_id, terminal(event.event_id, outcome))
+        now[0] = .8
+        worker.reconcile_eoffice(force=True)
+    message = dict(worker.message)
+    worker.handle_event(scan)
+    assert worker.message == message
+    assert len(worker.integration_store.pending()) == int(outcome is None)
+
+
+@pytest.mark.parametrize('other_person', [False, True])
+def test_cooldown_without_current_receipt_asks_to_wait(kiosk, other_person):
+    worker, now, _ = kiosk
+    capture(kiosk)
+    scan = replace(worker._current_capture, in_cooldown=True)
+    if other_person:
+        scan = replace(scan, pegawai_id=102)  # Same first name must not reuse another person's receipt.
+    else:
+        now[0] = 10.
+    worker.handle_event(scan)
+    worker.publish(force=True)
+    view = public_view(worker.state.read(), now=now[0])
+    assert view['message']['kind'] == 'info'
+    assert view['message']['text'] == 'Synthetic: Tunggu sebentar sebelum memindai ulang'
+    assert len(worker.integration_store.pending()) == 1
+
+
 def test_old_person_or_expired_result_cannot_replace_current_display(kiosk):
     worker, now, _ = kiosk
     old, = capture(kiosk)
