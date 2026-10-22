@@ -6,6 +6,7 @@ import subprocess
 import time
 
 from app_version import VERSION
+from maintenance import platforms
 from kiosk.lock import AlreadyRunning, SingleInstanceLock
 from maintenance.distribution import (active_version, atomic_json, backup_instance, executable,
                                       read_json, restore_instance)
@@ -39,6 +40,9 @@ def start_version(root, version, transaction=None):
     command = [str(executable(root, version)), '--root', str(root), 'launch']
     if transaction:
         command += ['--transaction', transaction]
+    if os.name != 'nt':
+        from maintenance.posix_install import launch_terminal
+        return launch_terminal(command, root)
     return subprocess.Popen(command, cwd=root, env={**os.environ, 'PYINSTALLER_RESET_ENVIRONMENT': '1'},
                             creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))
 
@@ -64,7 +68,7 @@ def apply_update(root, transaction, public_key):
         work = root / 'updates' / transaction
         previous = active_version(root)
         manifest = verify_manifest((work / 'update.json').read_bytes(), (work / 'update.sig').read_bytes(),
-                                   public_key, previous)
+                                   public_key, previous, expected_platform=platforms.platform_id())
         if manifest['version'] != VERSION or state.get('previous') != previous or state.get('target') != VERSION:
             raise UpdateError('Versi executable tidak cocok dengan transaksi.')
         backup = None
@@ -89,7 +93,7 @@ def apply_update(root, transaction, public_key):
                 if state.get('activated'):
                     activated = True
                     return
-                if child.poll() is not None:
+                if child.poll() is not None and (os.name == 'nt' or child.returncode != 0):
                     break
                 time.sleep(.1)
             if child.poll() is None:

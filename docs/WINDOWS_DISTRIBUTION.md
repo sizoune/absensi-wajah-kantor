@@ -4,8 +4,9 @@
 
 Windows 10/11 x64, kios eOffice, installer lengkap PyInstaller onedir + Inno
 Setup. Tidak memerlukan Python, Git, Docker atau pip pada perangkat. Model
-resmi tetap disiapkan melalui wizard. Distribusi Linux/macOS, standalone,
-MySQL, migrasi ZIP lama dan rollout per kantor di luar cakupan.
+resmi tetap disiapkan melalui wizard. Dukungan Mac/Linux dijelaskan di
+[distribusi desktop](DESKTOP_DISTRIBUTION.md). Standalone, MySQL, migrasi ZIP lama
+dan rollout per kantor di luar cakupan installer.
 
 Program disimpan di `%LOCALAPPDATA%\AbsensiWajahKantor\versions\<versi>`;
 `instance`, `backups`, dan `updates` persisten dan privat. `current.json`
@@ -101,7 +102,7 @@ Authenticode aplikasi terpisah dari signature updater.
 4. Ubah `app_version.VERSION` dan `distribution/RELEASE_NOTES.md` untuk rilis
    berikutnya. Push tag `v<VERSION>` pada commit yang sudah ditinjau untuk
    memulai build produksi; workflow juga dapat dijalankan manual dengan tag
-   tersebut. Workflow hanya membuat
+   tersebut. Workflow membangun keempat target desktop dan hanya membuat
    draft, tidak menerbitkan versi stabil. Key uji PR tidak dapat ditandatangani
    oleh proses rilis. Jangan mengganti public key antarversi tanpa rancangan
    rotasi kepercayaan; updater versi 1 menggunakan pasangan kunci yang sama.

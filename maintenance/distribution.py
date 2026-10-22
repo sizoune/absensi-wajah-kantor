@@ -9,6 +9,7 @@ import sqlite3
 import tempfile
 
 from services.update_package import UpdateError, version_tuple
+from maintenance import platforms
 
 TRANSACTION_STAGES = {'stopping', 'backing_up', 'applying', 'restarting'}
 
@@ -71,7 +72,7 @@ def startup_allowed(root):
 
 def executable(root, version):
     version_tuple(version)
-    return Path(root) / 'versions' / version / 'Absensi.exe'
+    return Path(root) / 'versions' / version / platforms.executable_path(platforms.platform_id())
 
 
 def active_version(root):

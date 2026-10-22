@@ -5,10 +5,12 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import signal
 from threading import Event
 import time
 
 from app_version import VERSION
+from maintenance import platforms
 from maintenance.distribution import active_version, initialize, read_json, startup_allowed
 from maintenance.kiosk_schema import migrate_instance
 from services.update_package import UpdateError
@@ -45,7 +47,7 @@ def packaged_app(root):
     for name in ('EOFFICE_KEY_FILE', 'BIOMETRIC_KEY_FILE', 'MODEL_DIR', 'EOFFICE_AURAFACE_PATH', 'EOFFICE_PERIOCULAR_PATH'):
         value = app.config.get(name)
         if value and not Path(value).resolve().is_relative_to(instance):
-            raise UpdateError('Paket Windows memerlukan data dan kunci di penyimpanan privat perangkat.')
+            raise UpdateError('Paket aplikasi memerlukan data dan kunci di penyimpanan privat perangkat.')
     migrate_instance(instance)
     return app
 
@@ -105,13 +107,25 @@ def launch(root, transaction=None):
         else:
             startup_allowed(root)
         app = packaged_app(root)
-        stop = app.extensions['launcher_stop'] = Event()
+        stop = app.extensions['launcher_stop'] = app_stop if os.name != 'nt' else Event()
         app.extensions['app_updates'] = UpdateManager(app, root, public_key(), stop)
         if transaction:
             from maintenance.windows_update import activate
             app.extensions['before_capture'] = lambda: activate(root, transaction)
         return app
-    run(instance_path=root / 'instance', app_factory=factory)
+    previous_handlers = {}
+    if os.name != 'nt':
+        def stop_service(signum, frame):
+            # Keep ownership until HTTP, capture and synchronization have drained.
+            app_stop.set()
+        app_stop = Event()
+        for signum in (signal.SIGTERM, signal.SIGHUP):
+            previous_handlers[signum] = signal.signal(signum, stop_service)
+    try:
+        run(instance_path=root / 'instance', app_factory=factory)
+    finally:
+        for signum, handler in previous_handlers.items():
+            signal.signal(signum, handler)
 
 
 def kiosk(root, once=False):
@@ -132,12 +146,17 @@ def kiosk(root, once=False):
 
 
 def main(argv=None):
+    if argv is None and sys.platform == 'darwin' and getattr(sys, 'frozen', False) and (
+            not sys.argv[1:] or sys.argv[1].startswith('-psn_')):
+        from maintenance.posix_install import finder_launch
+        finder_launch()
+        return 0
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root', type=Path, required=True)
+    parser.add_argument('--root', type=Path)
     commands = parser.add_subparsers(dest='mode', required=True)
     launch_command = commands.add_parser('launch')
     launch_command.add_argument('--transaction')
-    for command in ('kiosk', 'kiosk-once', 'initialize', 'recover', 'reset-admin-password'):
+    for command in ('kiosk', 'kiosk-once', 'initialize', 'recover', 'reset-admin-password', 'install', 'open', 'recover-active', 'reset-admin-password-active'):
         commands.add_parser(command)
     check = commands.add_parser('self-check')
     check.add_argument('--existing', action='store_true')
@@ -145,10 +164,19 @@ def main(argv=None):
     update = commands.add_parser('apply-update')
     update.add_argument('--transaction', required=True)
     args = parser.parse_args(argv)
-    if os.name != 'nt' and getattr(sys, 'frozen', False):
-        parser.error('Paket ini memerlukan Windows 10/11 x64.')
+    if args.root is None and args.mode not in ('install', 'open', 'recover-active', 'reset-admin-password-active'):
+        parser.error('--root diperlukan untuk operasi ini.')
     try:
-        if args.mode == 'launch':
+        platforms.platform_id()
+        if args.mode in ('install', 'open', 'recover-active', 'reset-admin-password-active'):
+            from maintenance.posix_install import install, open_active
+            root = args.root or platforms.default_root()
+            if args.mode == 'install':
+                install(root)
+            else:
+                mode = args.mode.removesuffix('-active') if args.mode.endswith('-active') else 'launch'
+                open_active(root, mode)
+        elif args.mode == 'launch':
             launch(args.root, args.transaction)
         elif args.mode in ('kiosk', 'kiosk-once'):
             kiosk(args.root, once=args.mode == 'kiosk-once')

@@ -1,10 +1,14 @@
-"""Verify signed release metadata and untrusted Windows archives."""
+"""Verify signed release metadata and bounded, untrusted release archives."""
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
+import posixpath
 import re
 import shutil
 import stat
+import tarfile
+import unicodedata
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 import zipfile
@@ -70,7 +74,8 @@ def fetch_metadata(url, limit=MAX_METADATA):
     return raw
 
 
-def verify_manifest(raw, signature, public_key, current_version, *, allow_equal=False):
+def verify_manifest(raw, signature, public_key, current_version, *, allow_equal=False,
+                    expected_platform='windows-x64'):
     try:
         if len(raw) > MAX_METADATA or len(signature) != 64:
             raise ValueError
@@ -81,7 +86,8 @@ def verify_manifest(raw, signature, public_key, current_version, *, allow_equal=
                 'min_updater_version', 'notes'}:
             raise ValueError
         if (type(value['format_version']) is not int or value['format_version'] != 1
-                or value['platform'] != 'windows-x64'
+                or value['platform'] != expected_platform
+                or expected_platform not in ('windows-x64', 'macos-arm64', 'macos-x64', 'linux-x64')
                 or type(value['min_updater_version']) is not int
                 or not 1 <= value['min_updater_version'] <= UPDATER_VERSION
                 or type(value['size']) is not int or not 0 < value['size'] <= MAX_PACKAGE
@@ -123,7 +129,7 @@ def download_package(manifest, destination, progress=lambda received: None):
 
 def extract_package(archive, destination, manifest):
     archive, destination = Path(archive), Path(destination)
-    if destination.exists():
+    if destination.exists() or destination.is_symlink():
         raise UpdateError('Folder kandidat sudah ada.')
     if archive.stat().st_size != manifest['size']:
         raise UpdateError('Ukuran arsip tidak sesuai.')
@@ -131,6 +137,9 @@ def extract_package(archive, destination, manifest):
         if hashlib.file_digest(source, 'sha256').hexdigest() != manifest['sha256']:
             raise UpdateError('Hash arsip tidak sesuai.')
     try:
+        if manifest.get('platform', 'windows-x64') != 'windows-x64':
+            _extract_tar(archive, destination)
+            return
         with zipfile.ZipFile(archive) as zf:
             entries = zf.infolist()
             if len(entries) > 30000 or sum(e.file_size for e in entries) > MAX_EXTRACTED:
@@ -159,7 +168,64 @@ def extract_package(archive, destination, manifest):
                     target.parent.mkdir(parents=True, exist_ok=True)
                     with zf.open(entry) as source, target.open('xb') as output:
                         shutil.copyfileobj(source, output, 1024 * 1024)
-    except (OSError, ValueError, zipfile.BadZipFile, RuntimeError, UpdateError) as exc:
+    except (OSError, ValueError, zipfile.BadZipFile, tarfile.TarError, RuntimeError, UpdateError) as exc:
         if destination.exists():
             shutil.rmtree(destination)
         raise UpdateError('Arsip pembaruan tidak dapat disiapkan.') from exc
+
+
+def _extract_tar(archive, destination):
+    def canonical(name):
+        return unicodedata.normalize('NFD', name).casefold()
+
+    with tarfile.open(archive, 'r:gz') as source:
+        entries, seen, total = [], set(), 0
+        for entry in source:
+            name = entry.name.rstrip('/')
+            parts = name.split('/')
+            total += entry.size
+            if (len(entries) >= 30000 or total > MAX_EXTRACTED or entry.size < 0
+                    or not name or PurePosixPath(name).is_absolute() or '\\' in name
+                    or any(p in ('', '.', '..') or any(ord(c) < 32 for c in p) for p in parts)
+                    or canonical(name) in seen
+                    or not (entry.isfile() or entry.isdir() or entry.issym())):
+                raise UpdateError('Entri arsip tidak aman.')
+            seen.add(canonical(name))
+            entries.append((name, entry))
+        links = {name for name, entry in entries if entry.issym()}
+        files = {name for name, entry in entries if entry.isfile()}
+        non_directories = {canonical(name) for name in links | files}
+        for name, entry in entries:
+            if any(canonical(str(parent)) in non_directories for parent in PurePosixPath(name).parents):
+                raise UpdateError('Entri arsip melewati file atau tautan.')
+            if entry.issym():
+                target = entry.linkname
+                resolved = posixpath.normpath(posixpath.join(posixpath.dirname(name), target))
+                if (not target or target.startswith('/') or '\\' in target
+                        or any(ord(c) < 32 for c in target)
+                        or resolved == '..' or resolved.startswith('../')):
+                    raise UpdateError('Tautan arsip keluar dari paket.')
+        destination.mkdir(parents=True, mode=0o700)
+        for name, entry in entries:
+            target = destination / name
+            if entry.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+            elif entry.isfile():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with source.extractfile(entry) as content, target.open('xb') as output:
+                    shutil.copyfileobj(content, output, 1024 * 1024)
+                target.chmod(entry.mode & 0o755)
+        for name, entry in entries:
+            if entry.issym():
+                target = destination / name
+                # Filesystems may alias case/Unicode names; check the actual parent before writing.
+                if not target.parent.resolve().is_relative_to(destination.resolve()):
+                    raise UpdateError('Tautan arsip keluar dari paket.')
+                if any((destination / parent).is_symlink() for parent in PurePosixPath(name).parents
+                       if str(parent) != '.'):
+                    raise UpdateError('Entri arsip melewati tautan.')
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.symlink(entry.linkname, target)
+        for name in links:
+            if not (destination / name).resolve(strict=True).is_relative_to(destination.resolve()):
+                raise UpdateError('Tautan arsip keluar dari paket.')

@@ -1,4 +1,4 @@
-name: Windows distribution
+name: Desktop distribution
 on:
   pull_request:
   push:
@@ -70,7 +70,75 @@ jobs:
           }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: windows-distribution
+          name: windows-x64-distribution
+          path: |
+            dist/release/
+            build/build-info.json
+            distribution/update-public-key.bin
+          if-no-files-found: error
+  build-posix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-arm64
+            runner: macos-15
+            python: cpython-3.11.17-macos-aarch64-none
+          - target: macos-x64
+            runner: macos-15-intel
+            python: cpython-3.11.17-macos-x86_64-none
+          - target: linux-x64
+            runner: ubuntu-22.04
+            python: cpython-3.11.17-linux-x86_64-gnu
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          version: '0.12.24'
+      - name: Linux desktop runtime libraries
+        if: matrix.target == 'linux-x64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libglib2.0-0 libgomp1 libxcb-xinerama0 libxcb-cursor0
+      - name: Prepare native CPython
+        env:
+          PYTHON_TARGET: ${{ matrix.python }}
+        run: |
+          uv python install "$PYTHON_TARGET" --no-bin --no-registry
+          uv venv --python "$PYTHON_TARGET" --managed-python .build-venv
+          echo "$GITHUB_WORKSPACE/.build-venv/bin" >> "$GITHUB_PATH"
+      - name: Install locked wheels
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          uv pip install --python .build-venv/bin/python --require-hashes --only-binary=:all: -r "requirements-$BUILD_TARGET.lock"
+      - name: Regression tests
+        if: github.event_name == 'pull_request'
+        run: |
+          python -m pytest -q -x
+          node tests/app_updates_ui.test.cjs
+      - name: Build and exercise extracted executable
+        env:
+          UPDATE_PUBLIC_KEY: ${{ vars.UPDATE_PUBLIC_KEY }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then
+            python scripts/build_posix.py --test-key
+          else
+            python scripts/build_posix.py
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.target }}-distribution
           path: |
             dist/release/
             build/build-info.json
@@ -78,7 +146,7 @@ jobs:
           if-no-files-found: error
   draft-release:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
-    needs: [build]
+    needs: [build, build-posix]
     runs-on: windows-2022
     environment: windows-release
     permissions:
@@ -100,19 +168,20 @@ jobs:
           (Join-Path $env:GITHUB_WORKSPACE '.build-venv\Scripts') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: windows-distribution
-          path: .
+          pattern: '*-distribution'
+          path: artifacts
       - run: 'uv pip install --python .build-venv/Scripts/python.exe --require-hashes --only-binary=:all: -r requirements-windows.lock'
       - name: Sign release metadata
         env:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: python scripts/release_windows.py
+        run: python scripts/release_desktop.py artifacts
       - name: Create draft only
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         shell: powershell
         run: |
-          gh release create $env:RELEASE_TAG dist/release/AbsensiSetup.exe dist/release/windows-x64.zip dist/release/update.json dist/release/update.json.sig --repo sizoune/absensi-wajah-kantor --draft --verify-tag --title $env:RELEASE_TAG --notes-file distribution/RELEASE_NOTES.md
+          $assets = @(Get-ChildItem 'artifacts/*/dist/release/*' -File | ForEach-Object { $_.FullName })
+          gh release create $env:RELEASE_TAG @assets --repo sizoune/absensi-wajah-kantor --draft --verify-tag --title $env:RELEASE_TAG --notes-file distribution/RELEASE_NOTES.md
           if ($LASTEXITCODE -ne 0) { throw 'Draft release gagal dibuat; tidak ada publikasi otomatis.' }

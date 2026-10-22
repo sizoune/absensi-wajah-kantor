@@ -1,5 +1,8 @@
 # Memasang aplikasi eOffice pada Windows
 
+Untuk Mac Apple Silicon/Intel dan Linux x64, ikuti
+[panduan distribusi desktop](DESKTOP_DISTRIBUTION.md).
+
 Untuk distribusi installer lengkap dan update GitHub, ikuti
 [panduan distribusi Windows](WINDOWS_DISTRIBUTION.md). Installer baru tidak
 menimpa instalasi ZIP lama. Bagian di bawah menjelaskan jalur bootstrap ZIP

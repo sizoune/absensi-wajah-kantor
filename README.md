@@ -36,9 +36,16 @@ pemilihan dan lisensi: [docs/MODEL_DECISION.md](docs/MODEL_DECISION.md).
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Hasil uji performa |
 | [docs/DOCKER.md](docs/DOCKER.md) | Wizard Docker, penyimpanan persisten, kamera browser dan reverse proxy HTTPS |
 
-## Pemasangan Windows
+## Pemasangan desktop
 
-Distribusi installer kios eOffice disiapkan melalui workflow **Windows
+Mac Apple Silicon/Intel memakai DMG dan Linux x64 memakai arsip dengan installer
+per pengguna. Semua mendukung pembaruan dari admin lokal. Ikuti
+[panduan Mac/Linux](docs/DESKTOP_DISTRIBUTION.md) untuk pemasangan, build dan
+pemulihan.
+
+### Windows
+
+Distribusi installer kios eOffice disiapkan melalui workflow **Desktop
 distribution**: `AbsensiSetup.exe` membawa runtime dan dependensi, lalu
 membuka wizard setup lokal. Update berikutnya melalui **Pembaruan aplikasi**
 pada admin lokal menggunakan paket GitHub bertanda tangan. Rilis tetap draft

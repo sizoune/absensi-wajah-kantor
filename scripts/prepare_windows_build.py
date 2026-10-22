@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 
 def prepare(*, test_key=False):
     from scripts.make_inference_fixtures import generate
+    from maintenance.platforms import platform_id
     if test_key:
         key = Ed25519PrivateKey.generate().public_key().public_bytes_raw()
     else:
@@ -43,7 +44,7 @@ def prepare(*, test_key=False):
         inventory.append({'name': name, 'version': package.version, 'license': declared, 'files': copied})
     (output / 'inventory.json').write_text(json.dumps(inventory, ensure_ascii=False, indent=2), encoding='utf-8')
     generate(ROOT / 'build/inference')
-    (ROOT / 'build/build-info.json').write_text(json.dumps({'test_key': test_key}), encoding='utf-8')
+    (ROOT / 'build/build-info.json').write_text(json.dumps({'test_key': test_key, 'platform': platform_id()}), encoding='utf-8')
 
 
 if __name__ == '__main__':

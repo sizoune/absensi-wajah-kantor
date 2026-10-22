@@ -58,6 +58,12 @@ def test_atomic_json_never_leaves_partial_target(tmp_path):
     assert not list(tmp_path.glob('*.tmp'))
 
 
+@pytest.fixture(autouse=True, params=['windows-x64', 'macos-arm64', 'macos-x64', 'linux-x64'])
+def transaction_platform(request, monkeypatch):
+    from maintenance import platforms
+    monkeypatch.setattr(platforms, 'platform_id', lambda: request.param)
+
+
 def transaction_root(tmp_path, monkeypatch):
     import maintenance.windows_update as update
     from test_update_package import signed
@@ -69,13 +75,15 @@ def transaction_root(tmp_path, monkeypatch):
     transaction = 'a' * 32
     work = tmp_path / 'updates' / transaction
     work.mkdir(parents=True)
-    raw, signature, key = signed()
+    from maintenance import platforms
+    raw, signature, key = signed(platform=platforms.platform_id())
     (work / 'update.json').write_bytes(raw)
     (work / 'update.sig').write_bytes(signature)
     for version in ('1.0.0', '1.1.0'):
-        path = tmp_path / 'versions' / version
-        path.mkdir(parents=True)
-        (path / 'Absensi.exe').write_bytes(b'exe')
+        from maintenance.distribution import executable
+        path = executable(tmp_path, version)
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b'exe')
     atomic_json(tmp_path / 'updates/journal.json', dict(stage='stopping', transaction=transaction,
                 previous='1.0.0', target='1.1.0', recovery_required=True, activated=False))
     return update, transaction, key
@@ -136,6 +144,7 @@ def test_restarted_executable_gets_independent_frozen_environment(tmp_path, monk
     import maintenance.windows_update as update
     calls = []
     monkeypatch.setattr(update.subprocess, 'Popen', lambda args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr('shutil.which', lambda name: '/usr/bin/x-terminal-emulator')
     update.start_version(tmp_path, '1.0.0')
     assert calls[0][1]['env']['PYINSTALLER_RESET_ENVIRONMENT'] == '1'
 
@@ -153,3 +162,17 @@ def test_windows_metadata_replace_requests_write_through(monkeypatch):
     monkeypatch.setattr(ctypes, 'WinDLL', lambda *args, **kwargs: SimpleNamespace(MoveFileExW=Move()), raising=False)
     distribution.replace_file('old', 'new')
     assert calls == [('old', 'new', 0x1 | 0x8)]
+
+
+@pytest.mark.skipif(__import__('os').name == 'nt', reason='POSIX terminal wrapper can exit before its child')
+def test_terminal_wrapper_exit_does_not_abort_candidate_activation(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    update, transaction, key = transaction_root(tmp_path, monkeypatch)
+    monkeypatch.setattr(update.subprocess, 'run', lambda *args, **kwargs: None)
+    monkeypatch.setattr(update, 'start_version', lambda *args: SimpleNamespace(poll=lambda: 0, returncode=0))
+    monkeypatch.setattr(update.time, 'sleep', lambda seconds: update.activate(tmp_path, transaction))
+    update.apply_update(tmp_path, transaction, key)
+    state = json.loads((tmp_path / 'updates/journal.json').read_text())
+    assert state['stage'] == 'completed'
+    assert state['activated']
+    assert not state.get('rolled_back')

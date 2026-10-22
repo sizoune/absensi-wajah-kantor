@@ -10,6 +10,12 @@ from app_version import VERSION
 from test_update_package import signed
 
 
+@pytest.fixture(autouse=True)
+def windows_target(monkeypatch):
+    from maintenance import platforms
+    monkeypatch.setattr(platforms, 'platform_id', lambda: 'windows-x64')
+
+
 def manager(app, tmp_path):
     root = tmp_path / 'distribution'
     (root / 'updates').mkdir(parents=True)

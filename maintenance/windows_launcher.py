@@ -14,6 +14,13 @@ from kiosk.lock import AlreadyRunning, SingleInstanceLock
 from kiosk.control import CaptureBusy
 
 
+def shutdown_notice(console, message):
+    try:
+        print(message, file=console, flush=True)
+    except OSError:
+        pass  # A closed terminal must not release ownership before writers drain.
+
+
 def run(app=None, console=None, *, instance_path=None, app_factory=None):
     import waitress
     from waitress import wasyncore
@@ -93,9 +100,13 @@ def run(app=None, console=None, *, instance_path=None, app_factory=None):
                 native = subprocess.Popen(command,
                     cwd=app.root_path,
                     env={**os.environ, 'ABSENSI_LAUNCHER_STOP_FILE': str(stop_file)},
-                    creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))
-            if not webbrowser.open(url + ('/setup' if required else '/kiosk/')):
-                raise RuntimeError('Browser tidak dapat dibuka. Periksa browser bawaan Windows.')
+                    creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0),
+                    start_new_session=os.name != 'nt')
+            open_browser = webbrowser.open
+            if sys.platform == 'linux' and getattr(sys, 'frozen', False):
+                from maintenance.posix_install import open_browser
+            if not open_browser(url + ('/setup' if required else '/kiosk/')):
+                raise RuntimeError('Browser tidak dapat dibuka. Periksa browser bawaan sistem.')
             while thread.is_alive():
                 if requested_stop is not None and requested_stop.is_set():
                     break
@@ -105,7 +116,7 @@ def run(app=None, console=None, *, instance_path=None, app_factory=None):
             if requested_stop is None or not requested_stop.is_set():
                 raise RuntimeError('Server web berhenti; jalankan peluncur kembali.')
         except KeyboardInterrupt:
-            print('Menghentikan aplikasi dengan bersih...', file=console, flush=True)
+            shutdown_notice(console, 'Menghentikan aplikasi dengan bersih...')
         finally:
             updater = app.extensions.get('app_updates')
             if updater is not None:
@@ -131,7 +142,7 @@ def run(app=None, console=None, *, instance_path=None, app_factory=None):
                                         fence.resume()
                                 break
                             except (CaptureBusy, subprocess.TimeoutExpired):
-                                print('Menunggu kamera dan sinkronisasi berhenti...', file=console, flush=True)
+                                shutdown_notice(console, 'Menunggu kamera dan sinkronisasi berhenti...')
                                 time.sleep(.1)
                     else:
                         with app.app_context(), capture_fence(app, reason='launcher') as fence:
@@ -145,7 +156,7 @@ def run(app=None, console=None, *, instance_path=None, app_factory=None):
                 runtime = app.extensions.get('browser_camera')
                 if runtime is not None:
                     while not runtime.close():
-                        print('Menunggu kamera dan sinkronisasi berhenti...', file=console, flush=True)
+                        shutdown_notice(console, 'Menunggu kamera dan sinkronisasi berhenti...')
             with app.app_context():
                 from extensions import db
                 db.session.remove()

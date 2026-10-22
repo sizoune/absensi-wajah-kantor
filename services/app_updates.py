@@ -9,6 +9,7 @@ import time
 import uuid
 
 from app_version import VERSION
+from maintenance import platforms
 from kiosk.control import capture_paused
 from kiosk.lock import AlreadyRunning, SingleInstanceLock
 from maintenance.distribution import active_version, atomic_json, executable, read_json, TRANSACTION_STAGES
@@ -30,6 +31,7 @@ class UpdateManager:
     def __init__(self, app, root, public_key, stop_event):
         self.app, self.root = app, Path(root)
         self.public_key, self.stop_event = public_key, stop_event
+        self.target = platforms.platform_id()
         self.closed = Event()
         self._busy = Lock()
 
@@ -86,9 +88,10 @@ class UpdateManager:
         self.stage('checking', recovery_required=False, target=None, notes='', received=0, size=0,
                    activated=False, backup=None, transaction=None, previous=None, rolled_back=False)
         atomic_json(self.root / 'updates/check.json', {'checked_at': time.time()})
-        raw = fetch_metadata(RELEASE_BASE + 'update.json')
-        signature = fetch_metadata(RELEASE_BASE + 'update.json.sig', 64)
-        manifest = verify_manifest(raw, signature, self.public_key, active_version(self.root), allow_equal=True)
+        name = platforms.metadata_name(self.target)
+        raw = fetch_metadata(RELEASE_BASE + name)
+        signature = fetch_metadata(RELEASE_BASE + name + '.sig', 64)
+        manifest = verify_manifest(raw, signature, self.public_key, active_version(self.root), allow_equal=True, expected_platform=self.target)
         if manifest['version'] == active_version(self.root):
             self.stage('idle')
             return
@@ -101,7 +104,7 @@ class UpdateManager:
         offer = self.root / 'updates'
         raw, signature = (offer / 'offer.json').read_bytes(), (offer / 'offer.sig').read_bytes()
         previous = active_version(self.root)
-        manifest = verify_manifest(raw, signature, self.public_key, previous)
+        manifest = verify_manifest(raw, signature, self.public_key, previous, expected_platform=self.target)
         with ExitStack() as stack:
             stack.enter_context(SingleInstanceLock(str(self.app.config['KIOSK_LOCK_FILE']) + '.settings'))
             stack.enter_context(SingleInstanceLock(Path(self.app.instance_path) / 'setup-models.lock'))
@@ -122,23 +125,29 @@ class UpdateManager:
             self.stage('downloading', target=manifest['version'], previous=previous,
                        transaction=transaction, received=0, size=manifest['size'], recovery_required=False,
                        activated=False, backup=None, rolled_back=False)
-            download_package(manifest, work / 'package.zip', lambda received: self.stage('downloading', received=received))
+            archive = work / platforms.package_name(self.target)
+            download_package(manifest, archive, lambda received: self.stage('downloading', received=received))
             self.stage('verifying')
-            candidate = executable(self.root, manifest['version']).parent
+            candidate = self.root / 'versions' / manifest['version']
+            candidate_executable = executable(self.root, manifest['version'])
             if candidate.exists():
                 # Only inactive candidates can be discarded; the previous active version is retained.
                 if candidate.name == previous:
                     raise UpdateError('Kandidat adalah versi aktif.')
                 shutil.rmtree(candidate)
-            extract_package(work / 'package.zip', candidate, manifest)
-            if not (candidate / 'Absensi.exe').is_file():
+            extract_package(archive, candidate, manifest)
+            if not candidate_executable.is_file() or (os.name != 'nt' and not os.access(candidate_executable, os.X_OK)):
                 raise UpdateError('Executable kandidat tidak tersedia.')
             self.stage('stopping', recovery_required=True)
             try:
-                subprocess.Popen([str(candidate / 'Absensi.exe'), '--root', str(self.root),
+                subprocess.Popen([str(candidate_executable), '--root', str(self.root),
                                   'apply-update', '--transaction', transaction],
                                  cwd=self.root, env={**os.environ, 'PYINSTALLER_RESET_ENVIRONMENT': '1'},
-                                 creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))
+                                 creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0),
+                                 start_new_session=os.name != 'nt',
+                                 stdin=subprocess.DEVNULL if os.name != 'nt' else None,
+                                 stdout=subprocess.DEVNULL if os.name != 'nt' else None,
+                                 stderr=subprocess.DEVNULL if os.name != 'nt' else None)
             except BaseException:
                 self.stage('failed', recovery_required=False)
                 raise

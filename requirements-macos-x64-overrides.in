@@ -1,0 +1,8 @@
+# Last official Intel wheels; LiteRT 1.x requires the NumPy 1.x ABI.
+onnxruntime==1.23.2
+ai-edge-litert==1.0.1
+numpy==1.26.4
+opencv-python==4.11.0.86
+
+# ONNX fixture generation must also use a NumPy 1.x-compatible build dependency.
+ml-dtypes==0.5.4

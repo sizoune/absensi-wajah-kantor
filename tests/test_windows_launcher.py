@@ -256,3 +256,34 @@ def test_windows_port_conflict_fails_exclusively_before_setup_access_changes(tmp
     assert listener.closed
     assert 'Kode setup:' not in console.getvalue()
     assert exchange(app.test_client(), code).status_code == 302
+
+
+def test_closed_terminal_keeps_ownership_until_browser_writers_drain(tmp_path, monkeypatch, local_http):
+    from threading import Event
+    from maintenance.windows_launcher import run
+    from extensions import db
+    from models import SetupState
+    app = installation(tmp_path, CAMERA_SOURCE='browser')
+    with app.app_context():
+        state = db.session.get(SetupState, 1)
+        state.complete = True
+        db.session.commit()
+    app.config['SETUP_REQUIRED'] = False
+    stop = app.extensions['launcher_stop'] = Event()
+    class ClosedConsole(io.StringIO):
+        def write(self, value):
+            raise OSError('terminal closed')
+    attempts = []
+    class Runtime:
+        def close(self):
+            with pytest.raises(AlreadyRunning):
+                SingleInstanceLock(tmp_path / 'launcher.lock').acquire()
+            attempts.append(True)
+            return len(attempts) > 1
+    app.extensions['browser_camera'] = Runtime()
+    def browser(url):
+        stop.set()
+        return True
+    monkeypatch.setattr(webbrowser, 'open', browser)
+    run(app, console=ClosedConsole())
+    assert len(attempts) == 2
